@@ -3,6 +3,7 @@
 #![feature(lang_items)]
 
 mod start;
+mod lpae;
 
 pub use start::start_mythril;
 
@@ -16,14 +17,19 @@ fn myassert() {
     assert!(1 + 1 == 2);
 
     for _ in 1..10 {
-        unsafe { VAR += 1; }
+        unsafe {
+            VAR += 1;
+        }
     }
 }
 
 #[panic_handler]
-fn handler(_x: &PanicInfo) -> ! { loop{} }
+fn handler(_x: &PanicInfo) -> ! {
+    loop {}
+}
 
-#[lang = "eh_unwind_resume"] extern fn rust_eh_unwind_resume() {}
+#[lang = "eh_unwind_resume"]
+extern "C" fn rust_eh_unwind_resume() {}
 
 #[cfg(test)]
 mod tests {

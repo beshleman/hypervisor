@@ -4,3 +4,4 @@ rustc sysroot AND `xargo` must be used. Directions for this process can be found
 
 	https://github.com/japaric/rust-cross#rust-cross
 
+load virtio 0 0x40200000 /hypervisor.elf && bootelf
