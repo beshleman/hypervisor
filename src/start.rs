@@ -39,19 +39,28 @@ fn map_address_range(virt_start: u64, virt_end: u64, phys_start: u64) -> () {
     }
 }
 
-fn setup_boot_pagetables(s: u64, e: u64, _offset: u64) -> ! {
+fn setup_boot_pagetables(start: u64, end: u64, _offset: u64) -> ! {
     /*
      * This pagetable code assumes that we can fit the entire hypervisor
      * into a single stage1 table mapping, which is 2MB.
      *
      * Panic if the hypervisor is larger than 2MB.
      */
-    assert!(!(e - s > (ADDRESS_SPACE_PER_TABLE as u64)));
+    assert!(!(end - start > (ADDRESS_SPACE_PER_TABLE as u64)));
+
+    /* TODO: panic if we are not in EL2 */
 
     /* Identity map the hypervisor (virtual address == physical address) */
-    map_address_range(s, e, s);
+    map_address_range(start, end, start);
+
+    /* Map the hypervisor load address space to its real physical address space */
+    map_address_range(start + _offset, end + _offset, start);
 
     /* TODO: map RO, .text, .bss, etc... separately w/ appropriate permissions */
+    /* TODO: Set Memory Attribute Indirect Register (MAIR) */
+    /* TODO: Initialize processor for enabling the MMU */
+    /* TODO: Enable the MMU */
+
     loop {}
 }
 
