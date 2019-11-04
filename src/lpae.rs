@@ -11,6 +11,9 @@ const PAGE_SHIFT: u64 = 12;
 const PAGE_MASK: u64 = (1 << PAGE_SHIFT) - 1;
 pub const PAGE_SIZE: usize = (1 << PAGE_SHIFT) as usize;
 
+const PAGE_ENTRIES_PER_TABLE: usize = 512;
+pub const ADDRESS_SPACE_PER_TABLE: usize = PAGE_SIZE * PAGE_ENTRIES_PER_TABLE;
+
 const PTE_SHIFT_4K: u64 = 9;
 const PTE_SHIFT_16K: u64 = 1;
 const PTE_SHIFT_64K: u64 = 13;
@@ -86,23 +89,24 @@ pub struct PageTableEntry {
  *  Not Secure               : 63, 1
  */
 
-/* Common */
+/* Valid: bit 0 */
 const PTE_VALID_SHIFT: u64 = 0;
 const PTE_VALID_BITS: u64 = 1;
 const PTE_VALID_MASK: u64 = PTE_VALID_BITS << PTE_VALID_SHIFT;
 
+/* Table: bit 1 */
 const PTE_TABLE_SHIFT: u64 = 1;
 const PTE_TABLE_BITS: u64 = 1;
 const PTE_TABLE_MASK: u64 = PTE_TABLE_BITS << PTE_TABLE_SHIFT;
 
-/* Block Entry Only */
+/* Attribute: bits 2..4 */
 const PTE_ATTR_SHIFT: u64  = 2;
 const PTE_ATTR_BITS: u64  = 3;
 const PTE_ATTR_UNSHIFTED_MASK: u64 = (1 << PTE_ATTR_BITS) - 1;
 const PTE_ATTR_MASK: u64  = PTE_ATTR_UNSHIFTED_MASK << PTE_ATTR_SHIFT;
 
-/* LPAE shareability attributes */
-/* This mask makes the page SMP coherent */
+/* Shareability attributes */
+/* This makes the page entry SMP coherent */
 const PTE_ATTR_INNER_SHARE_MASK: u64 = 0x3 << PTE_ATTR_SHIFT;
 
 const PTE_NON_SECURE_SHIFT: u64  = 5;
@@ -204,41 +208,27 @@ impl PageTableEntry {
     }
 }
 
+pub type VirtualAddress = u64;
 
-#[derive(Copy, Clone, Debug)]
-pub struct VirtualAddress {
-    pub vaddr: u64,
-}
-
-impl VirtualAddress {
-    pub fn new(vaddr: u64) -> VirtualAddress {
-        return VirtualAddress { vaddr: vaddr };
-    }
-
-    pub fn aligned(&self, alignment: Alignment) -> VirtualAddress {
-        return VirtualAddress::new(self.vaddr & alignment.mask());
-    }
-
-    pub fn vaddr(&self) -> u64 {
-        return self.vaddr;
-    }
+pub fn align(vaddr: VirtualAddress, alignment: Alignment) -> VirtualAddress {
+    return vaddr & alignment.mask();
 }
 
 /* Helpers for navigating the page tables */
-pub fn pagetable_zeroeth_index(vaddr: &VirtualAddress) -> usize {
-    return ((vaddr.vaddr() >> ZEROETH_SHIFT) & PTE_MASK) as usize;
+pub fn pagetable_zeroeth_index(vaddr: VirtualAddress) -> usize {
+    return ((vaddr >> ZEROETH_SHIFT) & PTE_MASK) as usize;
 }
 
-pub fn pagetable_first_index(vaddr: &VirtualAddress) -> usize {
-    return ((vaddr.vaddr() >> FIRST_SHIFT) & PTE_MASK) as usize;
+pub fn pagetable_first_index(vaddr: VirtualAddress) -> usize {
+    return ((vaddr >> FIRST_SHIFT) & PTE_MASK) as usize;
 }
 
-pub fn pagetable_second_index(vaddr: &VirtualAddress) -> usize {
-    return ((vaddr.vaddr() >> SECOND_SHIFT) & PTE_MASK) as usize;
+pub fn pagetable_second_index(vaddr: VirtualAddress) -> usize {
+    return ((vaddr >> SECOND_SHIFT) & PTE_MASK) as usize;
 }
 
-pub fn pagetable_third_index(vaddr: &VirtualAddress) -> usize {
-    return ((vaddr.vaddr() >> THIRD_SHIFT) & PTE_MASK) as usize;
+pub fn pagetable_third_index(vaddr: VirtualAddress) -> usize {
+    return ((vaddr >> THIRD_SHIFT) & PTE_MASK) as usize;
 }
 
 pub type PageTable = [PageTableEntry; 512];
