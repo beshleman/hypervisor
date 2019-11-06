@@ -1,28 +1,20 @@
 #![no_std]
 #![no_main]
 #![feature(lang_items)]
+#![feature(asm)]
+#![feature(trace_macros)]
 
 mod start;
 mod lpae;
+mod memory_attrs;
+mod aarch64;
 
 pub use start::start_mythril;
 
+#[cfg(not(test))]
 use core::panic::PanicInfo;
 
-static mut VAR: i32 = 0;
-
-#[link_section = ".example_section"]
-#[no_mangle]
-fn myassert() {
-    assert!(1 + 1 == 2);
-
-    for _ in 1..10 {
-        unsafe {
-            VAR += 1;
-        }
-    }
-}
-
+#[cfg(not(test))]
 #[panic_handler]
 fn handler(_x: &PanicInfo) -> ! {
     loop {}

@@ -11,6 +11,9 @@ use crate::lpae::{
     pagetable_third_index
 };
 
+use crate::mrs;
+use crate::memory_attrs;
+
 /* TODO: look into options for avoiding static mut */
 static mut ZEROETH: PageTable = [PageTableEntry { pte: 0 }; 512];
 static mut FIRST: PageTable = [PageTableEntry { pte: 0 }; 512];
@@ -20,7 +23,7 @@ static mut THIRD: PageTable = [PageTableEntry { pte: 0 }; 512];
 fn map_address_range(virt_start: u64, virt_end: u64, phys_start: u64) -> () {
     let start = align(virt_start, Alignment::Kb4);
     let end = align(virt_end, Alignment::Kb4);
-    let mut paddr = phys_start;
+    let mut paddr = align(phys_start, Alignment::Kb4);
 
     for vaddr in (start..end).step_by(PAGE_SIZE) {
         let index0 = pagetable_zeroeth_index(vaddr);
@@ -57,14 +60,41 @@ fn setup_boot_pagetables(start: u64, end: u64, _offset: u64) -> ! {
     map_address_range(start + _offset, end + _offset, start);
 
     /* TODO: map RO, .text, .bss, etc... separately w/ appropriate permissions */
-    /* TODO: Set Memory Attribute Indirect Register (MAIR) */
+
+    /* Set Memory Attribute Indirect Register (MAIR) */
+    memory_attrs::init();
+
     /* TODO: Initialize processor for enabling the MMU */
     /* TODO: Enable the MMU */
 
     loop {}
 }
 
+pub fn disable_interrupts() -> () {
+    /* Can't use msr!() because DAIFSet only takes immedates */
+    unsafe {
+        asm!("msr DAIFSet, 0xf");
+    }
+}
+
+pub fn current_el() -> u64 {
+    let el: u64;
+
+    mrs!(el, "CurrentEL");
+    /*
+    unsafe {
+        asm!("mrs $0, CurrentEL" : "=r"(el));
+    }
+    */
+
+    return el >> 2;
+}
+
 #[no_mangle]
 pub fn start_mythril(start: u64, end: u64, offset: u64) -> () {
+    let el = current_el();
+    assert_eq!(el, 2);
+
+    disable_interrupts();
     setup_boot_pagetables(start, end, offset);
 }

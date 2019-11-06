@@ -7,6 +7,10 @@
  * VMSAv8-64 translation table format descriptors" in the manual.
  */
 #![allow(dead_code)]
+
+pub type VirtualAddress = u64;
+pub type PageTable = [PageTableEntry; 512];
+
 const PAGE_SHIFT: u64 = 12;
 const PAGE_MASK: u64 = (1 << PAGE_SHIFT) - 1;
 pub const PAGE_SIZE: usize = (1 << PAGE_SHIFT) as usize;
@@ -37,6 +41,7 @@ const ZEROETH_SIZE: u64 =  (1 << ZEROETH_SHIFT);
 const ZEROETH_MASK: u64 =  (!(ZEROETH_SIZE - 1));
 
 const ALIGN_4K_MASK: u64 = !PAGE_MASK;
+
 pub enum Alignment {
     Kb4,
 }
@@ -208,8 +213,6 @@ impl PageTableEntry {
     }
 }
 
-pub type VirtualAddress = u64;
-
 pub fn align(vaddr: VirtualAddress, alignment: Alignment) -> VirtualAddress {
     return vaddr & alignment.mask();
 }
@@ -230,8 +233,6 @@ pub fn pagetable_second_index(vaddr: VirtualAddress) -> usize {
 pub fn pagetable_third_index(vaddr: VirtualAddress) -> usize {
     return ((vaddr >> THIRD_SHIFT) & PTE_MASK) as usize;
 }
-
-pub type PageTable = [PageTableEntry; 512];
 
 pub fn align_4k(addr: u64) -> u64 {
     return addr & ALIGN_4K_MASK;

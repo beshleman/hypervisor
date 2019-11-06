@@ -1,3 +1,3 @@
 #!/bin/bash
 
-aarch64-linux-gnu-gdb -ex "target remote localhost:1234" -ex "hb *0x40000650"
+aarch64-linux-gnu-gdb target/aarch64-unknown-linux-gnu/debug/hypervisor.elf -ex "target remote localhost:1234" -ex "hb start_mythril" -ex "c"
