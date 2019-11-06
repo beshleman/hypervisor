@@ -206,6 +206,8 @@ impl PageTableEntry {
 
             /* TODO: Support other shareability attrs */
             /* Hypervisor mappings are SMP coherent / inner shareable */
+
+            /* TODO: MOVE THIS definintion TO memory__attrs  */
             address |= PTE_ATTR_INNER_SHARE_MASK;
 
             /* TODO: Set block bit */

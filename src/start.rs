@@ -11,10 +11,12 @@ use crate::lpae::{
     pagetable_third_index
 };
 
-use crate::mrs;
+use crate::{msr, mrs};
 use crate::memory_attrs;
+use crate::aarch64::{current_el, Shareable, data_barrier};
 
 /* TODO: look into options for avoiding static mut */
+/* TODO: Use borrow checker to maintain single references (singleton) */
 static mut ZEROETH: PageTable = [PageTableEntry { pte: 0 }; 512];
 static mut FIRST: PageTable = [PageTableEntry { pte: 0 }; 512];
 static mut SECOND: PageTable = [PageTableEntry { pte: 0 }; 512];
@@ -77,23 +79,75 @@ pub fn disable_interrupts() -> () {
     }
 }
 
-pub fn current_el() -> u64 {
-    let el: u64;
+fn flush_hypervisor_tlb() -> () {
+    unsafe { asm!("tlbi alle2") };
+    data_barrier(Shareable::Non);
+}
 
-    mrs!(el, "CurrentEL");
-    /*
+fn isb() ->() {
+    unsafe { asm!("isb"); }
+}
+
+fn switch_ttbr(pagetable: &PageTable) -> () {
+    let ttbr0_el2 = &pagetable as *const _ as u64;
+    msr!("TTBR0_EL2", ttbr0_el2);
+    isb();
+}
+
+fn enable_mmu() -> () {
+    let mut sctlr_el2: u64;
+
+    /* Flush the tlb just in case there is stale state */
+    flush_hypervisor_tlb();
+
     unsafe {
-        asm!("mrs $0, CurrentEL" : "=r"(el));
+        switch_ttbr(&ZEROETH);
     }
-    */
 
-    return el >> 2;
+    mrs!(sctlr_el2, "SCTLR_EL2");
+
+    /* Enable the MMU */
+    sctlr_el2 |= 1;
+
+    /* Enable the D-cache */
+    sctlr_el2 |= 1 << 2;
+
+    /* Sync all pagetable modifications */
+    data_barrier(Shareable::FullSystem);
+
+    msr!("SCTLR_EL2", sctlr_el2);
+    unsafe{ asm!("isb") }
+
+    
+
+    
+    /*
+     *  /*DONE*/
+        tlbi  alle2                  /* Flush hypervisor TLBs */
+        dsb   nsh
+
+        /* Write Xen's PT's paddr into TTBR0_EL2 */
+        load_paddr x0, boot_pgtable
+        msr   TTBR0_EL2, x0
+        isb
+
+        mrs   x0, SCTLR_EL2
+        orr   x0, x0, #SCTLR_Axx_ELx_M  /* Enable MMU */
+        orr   x0, x0, #SCTLR_Axx_ELx_C  /* Enable D-cache */
+        dsb   sy                     /* Flush PTE writes and finish reads */
+        msr   SCTLR_EL2, x0          /* now paging is enabled */
+        isb                          /* Now, flush the icache */
+        */
+
 }
 
 #[no_mangle]
 pub fn start_mythril(start: u64, end: u64, offset: u64) -> () {
     let el = current_el();
     assert_eq!(el, 2);
+
+    /* TMP: test that turning on the mmu w/out page tables kills the program */
+    enable_mmu();
 
     disable_interrupts();
     setup_boot_pagetables(start, end, offset);

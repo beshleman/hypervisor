@@ -17,3 +17,28 @@ macro_rules! mrs {
     }
 }
 
+pub fn current_el() -> u64 {
+    let el: u64;
+
+    mrs!(el, "CurrentEL");
+
+    return el >> 2;
+}
+
+#[allow(dead_code)]
+pub enum Shareable {
+    Non,
+    Inner,
+    Outer,
+    FullSystem,
+}
+
+pub fn data_barrier(sh: Shareable) -> () {
+    match sh {
+        Shareable::Non => unsafe { asm!("dsb nsh"); },
+        Shareable::Inner => unsafe { asm!("dsb ish"); },
+        Shareable::Outer => unsafe { asm!("dsb osh"); },
+        Shareable::FullSystem => unsafe { asm!("dsb sy"); },
+    }
+}
+
