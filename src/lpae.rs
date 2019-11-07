@@ -185,6 +185,8 @@ impl PageTableEntry {
     pub fn from_table(table: &PageTable) -> PageTableEntry {
             let mut address = (table as *const PageTable) as u64;
 
+            // Implement this: PT_PT     0xf7f /* nG=1 AF=1 SH=11 AP=01 NS=1 ATTR=111 T=1 P=1 */
+
             address <<= PTE_SHIFT;
             address |= PTE_VALID;
             address |= PTE_TABLE;

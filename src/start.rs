@@ -44,7 +44,7 @@ fn map_address_range(virt_start: u64, virt_end: u64, phys_start: u64) -> () {
     }
 }
 
-fn setup_boot_pagetables(start: u64, end: u64, _offset: u64) -> ! {
+fn setup_boot_pagetables(start: u64, end: u64, _offset: u64) -> () {
     /*
      * This pagetable code assumes that we can fit the entire hypervisor
      * into a single stage1 table mapping, which is 2MB.
@@ -68,8 +68,6 @@ fn setup_boot_pagetables(start: u64, end: u64, _offset: u64) -> ! {
 
     /* TODO: Initialize processor for enabling the MMU */
     /* TODO: Enable the MMU */
-
-    loop {}
 }
 
 pub fn disable_interrupts() -> () {
@@ -92,6 +90,62 @@ fn switch_ttbr(pagetable: &PageTable) -> () {
     let ttbr0_el2 = &pagetable as *const _ as u64;
     msr!("TTBR0_EL2", ttbr0_el2);
     isb();
+}
+
+fn get_phys_addr_range() -> u64 {
+    let mmfr0: u64;
+
+    mrs!(mmfr0, "ID_AA64MMFR0_EL1"); 
+
+    // ID_AA64MMFR0_EL1[3:0] is PARange
+    mmfr0 & 0xf
+}
+
+fn get_t0size(_pa_range: u64) -> u64 {
+    unimplemented!();
+}
+
+const HCR_EL2_E2H_SHIFT: u64 = 34;
+
+fn init_tcr() -> () {
+    /* The format of the Translation Control Register changes
+     * depending on if we support operating systems executing
+     * at EL2 (ie., ARMv8-VHE is implemented and HCR2_EL2.E2H == 1).
+     *
+     * We do not support this so let's disable it.
+     */
+    let mut hcr_el2: u64;
+    mrs!(hcr_el2, "HCR_EL2");
+    hcr_el2 &= !(1 << HCR_EL2_E2H_SHIFT);
+    msr!("HCR_EL2", hcr_el2);
+
+    /* TEMP: remove */
+    let test: u64;
+    mrs!(test, "HCR_EL2");
+    assert_eq!((test >>  HCR_EL2_E2H_SHIFT) & 1, 0);
+
+    /* ldr   x0, =(TCR_RES1|TCR_SH0_IS|TCR_ORGN0_WBWA|
+     * TCR_IRGN0_WBWA|TCR_T0SZ(64-48))
+     */
+
+    let mut tcr_el2: u64 = 0;
+    let pa_range = get_phys_addr_range();
+    let t0size = get_t0size(pa_range);
+
+    const TCR_EL2_INNER_WRITE_BACK_WRITE_ALLOC: u64 = (0x1 << 8);
+    const TCR_EL2_OUTER_WRITE_BACK_WRITE_ALLOC: u64 = (0x1 << 10);
+    const TCR_EL2_INNER_SHAREABLE: u64 = 0x3 << 12;
+
+    tcr_el2 |= TCR_EL2_INNER_WRITE_BACK_WRITE_ALLOC;
+    tcr_el2 |= TCR_EL2_OUTER_WRITE_BACK_WRITE_ALLOC;
+    tcr_el2 |= TCR_EL2_INNER_SHAREABLE;
+
+    // TCR_EL2.T0SIZE[18:16]
+    tcr_el2 |= (pa_range & 0x3) << 16;
+
+    // TCR_EL2.T0SIZE[5:0]
+    tcr_el2 |= t0size;
+    msr!("tcr_el2", tcr_el2);
 }
 
 fn enable_mmu() -> () {
@@ -117,38 +171,21 @@ fn enable_mmu() -> () {
 
     msr!("SCTLR_EL2", sctlr_el2);
     unsafe{ asm!("isb") }
+}
 
-    
-
-    
-    /*
-     *  /*DONE*/
-        tlbi  alle2                  /* Flush hypervisor TLBs */
-        dsb   nsh
-
-        /* Write Xen's PT's paddr into TTBR0_EL2 */
-        load_paddr x0, boot_pgtable
-        msr   TTBR0_EL2, x0
-        isb
-
-        mrs   x0, SCTLR_EL2
-        orr   x0, x0, #SCTLR_Axx_ELx_M  /* Enable MMU */
-        orr   x0, x0, #SCTLR_Axx_ELx_C  /* Enable D-cache */
-        dsb   sy                     /* Flush PTE writes and finish reads */
-        msr   SCTLR_EL2, x0          /* now paging is enabled */
-        isb                          /* Now, flush the icache */
-        */
+fn check_hw_support() -> () {
+    let el = current_el();
+    assert_eq!(el, 2);
 
 }
 
 #[no_mangle]
 pub fn start_mythril(start: u64, end: u64, offset: u64) -> () {
-    let el = current_el();
-    assert_eq!(el, 2);
 
-    /* TMP: test that turning on the mmu w/out page tables kills the program */
-    enable_mmu();
 
+    check_hw_support();
     disable_interrupts();
     setup_boot_pagetables(start, end, offset);
+    init_tcr();
+    enable_mmu();
 }
