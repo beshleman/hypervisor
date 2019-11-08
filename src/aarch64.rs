@@ -42,3 +42,7 @@ pub fn data_barrier(sh: Shareable) -> () {
     }
 }
 
+pub fn isb() -> () {
+    unsafe{ asm!("isb") }
+}
+

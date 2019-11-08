@@ -3,13 +3,14 @@
 #![feature(lang_items)]
 #![feature(asm)]
 #![feature(trace_macros)]
+#![feature(const_fn)]
 
 mod start;
 mod lpae;
 mod memory_attrs;
 mod aarch64;
 
-pub use start::start_mythril;
+pub use start::start_hypervisor;
 
 #[cfg(not(test))]
 use core::panic::PanicInfo;

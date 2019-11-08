@@ -10,12 +10,17 @@
 
 use crate::msr;
 
+/* Shareability attributes */
+/* This makes the page entry SMP coherent */
+const PTE_ATTR_SHIFT: u64  = 2;
+pub const PTE_ATTR_INNER_SHARE_MASK: u64 = 0x3 << PTE_ATTR_SHIFT;
+
 /**
  * For right now we only configure "Normal, Write-back, Write-allocate"
  * memory.  This is what will be used by the hypervisor.  Once we
  * support I/O, obviously Device memory will need to be supported.
  * Once we support guests and pinning, other shareability/cacheability
- * attributes will need support.
+ * attributes will probably need support.
  */
 pub fn init() -> () {
     /*
@@ -26,16 +31,5 @@ pub fn init() -> () {
      */
 
     /* Write to MAIR_EL2 */
-    //msr!("mair_el2", 0xff);
-
     msr!("mair_el2", 0xff);
-
-    /*
-    unsafe {
-        asm!("msr mair_el2, $0" :: "r"(MAIR) :: );
-    }*/
-    /*
-        ldr   x0, =MAIRVAL
-        msr   mair_el2, x0
-    */
 }

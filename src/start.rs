@@ -13,7 +13,21 @@ use crate::lpae::{
 
 use crate::{msr, mrs};
 use crate::memory_attrs;
-use crate::aarch64::{current_el, Shareable, data_barrier};
+use crate::aarch64::{current_el, Shareable, data_barrier, isb};
+
+const fn bit(x: u64) -> u64 {
+    1 << x
+}
+
+const SCTLR_EL2_RES1: u64 = (bit(4) | bit(5) | bit(11) |
+                             bit(16) | bit(18) | bit(22) |
+                             bit(23) | bit(28) | bit(29));
+
+const HCR_EL2_E2H_SHIFT: u64 = 34;
+const TCR_EL2_INNER_WRITE_BACK_WRITE_ALLOC: u64 = bit(8);
+const TCR_EL2_OUTER_WRITE_BACK_WRITE_ALLOC: u64 = bit(10);
+const TCR_EL2_INNER_SHAREABLE: u64 = bit(12) | bit(13);
+const TCR_EL2_RES1: u64 = bit(31) | bit(23);
 
 /* TODO: look into options for avoiding static mut */
 /* TODO: Use borrow checker to maintain single references (singleton) */
@@ -53,8 +67,6 @@ fn setup_boot_pagetables(start: u64, end: u64, _offset: u64) -> () {
      */
     assert!(!(end - start > (ADDRESS_SPACE_PER_TABLE as u64)));
 
-    /* TODO: panic if we are not in EL2 */
-
     /* Identity map the hypervisor (virtual address == physical address) */
     map_address_range(start, end, start);
 
@@ -65,9 +77,6 @@ fn setup_boot_pagetables(start: u64, end: u64, _offset: u64) -> () {
 
     /* Set Memory Attribute Indirect Register (MAIR) */
     memory_attrs::init();
-
-    /* TODO: Initialize processor for enabling the MMU */
-    /* TODO: Enable the MMU */
 }
 
 pub fn disable_interrupts() -> () {
@@ -80,10 +89,6 @@ pub fn disable_interrupts() -> () {
 fn flush_hypervisor_tlb() -> () {
     unsafe { asm!("tlbi alle2") };
     data_barrier(Shareable::Non);
-}
-
-fn isb() ->() {
-    unsafe { asm!("isb"); }
 }
 
 fn switch_ttbr(pagetable: &PageTable) -> () {
@@ -101,55 +106,95 @@ fn get_phys_addr_range() -> u64 {
     mmfr0 & 0xf
 }
 
-fn get_t0size(_pa_range: u64) -> u64 {
-    unimplemented!();
-}
-
-const HCR_EL2_E2H_SHIFT: u64 = 34;
-
-fn init_tcr() -> () {
-    /* The format of the Translation Control Register changes
-     * depending on if we support operating systems executing
-     * at EL2 (ie., ARMv8-VHE is implemented and HCR2_EL2.E2H == 1).
-     *
-     * We do not support this so let's disable it.
-     */
+fn disable_el2_host() -> () {
+    // D13.2.46 HCR_EL2, Hypervisor Configuration Register
     let mut hcr_el2: u64;
     mrs!(hcr_el2, "HCR_EL2");
     hcr_el2 &= !(1 << HCR_EL2_E2H_SHIFT);
     msr!("HCR_EL2", hcr_el2);
+}
 
-    /* TEMP: remove */
-    let test: u64;
-    mrs!(test, "HCR_EL2");
-    assert_eq!((test >>  HCR_EL2_E2H_SHIFT) & 1, 0);
-
-    /* ldr   x0, =(TCR_RES1|TCR_SH0_IS|TCR_ORGN0_WBWA|
-     * TCR_IRGN0_WBWA|TCR_T0SZ(64-48))
-     */
-
+fn init_tcr() -> () {
     let mut tcr_el2: u64 = 0;
-    let pa_range = get_phys_addr_range();
-    let t0size = get_t0size(pa_range);
 
-    const TCR_EL2_INNER_WRITE_BACK_WRITE_ALLOC: u64 = (0x1 << 8);
-    const TCR_EL2_OUTER_WRITE_BACK_WRITE_ALLOC: u64 = (0x1 << 10);
-    const TCR_EL2_INNER_SHAREABLE: u64 = 0x3 << 12;
-
+    tcr_el2 |= TCR_EL2_RES1;
     tcr_el2 |= TCR_EL2_INNER_WRITE_BACK_WRITE_ALLOC;
     tcr_el2 |= TCR_EL2_OUTER_WRITE_BACK_WRITE_ALLOC;
     tcr_el2 |= TCR_EL2_INNER_SHAREABLE;
 
-    // TCR_EL2.T0SIZE[18:16]
+    // TCR_EL2.PS[18:16]
+    let pa_range = get_phys_addr_range();
     tcr_el2 |= (pa_range & 0x3) << 16;
 
-    // TCR_EL2.T0SIZE[5:0]
-    tcr_el2 |= t0size;
+    // 48-bit virtual address space
+    tcr_el2 |= 64 - 48;
     msr!("tcr_el2", tcr_el2);
 }
 
-fn enable_mmu() -> () {
+fn enable_mmu() -> () { 
     let mut sctlr_el2: u64;
+
+    mrs!(sctlr_el2, "SCTLR_EL2");
+
+    /* Enable the MMU */
+    sctlr_el2 |= bit(1);
+
+    /* Sync all pagetable modifications */
+    data_barrier(Shareable::FullSystem);
+
+    msr!("SCTLR_EL2", sctlr_el2);
+    isb();
+}
+
+fn init_sctlr() -> () {
+    /* Default to zero so we don't have to set all of the RES0 bits */
+    let mut sctlr_el2: u64 = 0;
+
+    /* Set all RES1 bits */
+    sctlr_el2 |= SCTLR_EL2_RES1;
+
+    /* Enable the D-cache */
+    sctlr_el2 |= bit(2);
+
+    /*
+     * Cause SP Alignment fault if the stack pointer is used in a load/store
+     * but is not 16 byte aligned
+     */
+    sctlr_el2 |= bit(3);
+
+    /*
+     * If the MMU is on (SCTLR_EL2.M == 1), then instruction accesses from
+     * stage 1 of the EL2 translation regime are to Normal, Outer Shareable,
+     * Inner Write-Through, Outer Write-Through memory.
+     */
+    sctlr_el2 |= bit(12);
+
+    msr!("SCTLR_EL2", sctlr_el2);
+
+    /* Make sure SCTLR_EL2 is loaded before we continue */
+    isb();
+}
+
+fn check_el2() -> () {
+    let el = current_el();
+    assert_eq!(el, 2);
+}
+
+#[no_mangle]
+pub fn start_hypervisor(start: u64, end: u64, offset: u64) -> () {
+    check_el2();
+    disable_interrupts();
+
+    /*
+     * As a baremetal hypervisor with no nested hypervisor support
+     * we do not need to support hosts at EL2.
+     */
+    disable_el2_host();
+
+    init_tcr();
+    init_sctlr();
+    unsafe { asm!("msr spsel, #1") }
+    setup_boot_pagetables(start, end, offset);
 
     /* Flush the tlb just in case there is stale state */
     flush_hypervisor_tlb();
@@ -158,34 +203,5 @@ fn enable_mmu() -> () {
         switch_ttbr(&ZEROETH);
     }
 
-    mrs!(sctlr_el2, "SCTLR_EL2");
-
-    /* Enable the MMU */
-    sctlr_el2 |= 1;
-
-    /* Enable the D-cache */
-    sctlr_el2 |= 1 << 2;
-
-    /* Sync all pagetable modifications */
-    data_barrier(Shareable::FullSystem);
-
-    msr!("SCTLR_EL2", sctlr_el2);
-    unsafe{ asm!("isb") }
-}
-
-fn check_hw_support() -> () {
-    let el = current_el();
-    assert_eq!(el, 2);
-
-}
-
-#[no_mangle]
-pub fn start_mythril(start: u64, end: u64, offset: u64) -> () {
-
-
-    check_hw_support();
-    disable_interrupts();
-    setup_boot_pagetables(start, end, offset);
-    init_tcr();
     enable_mmu();
 }

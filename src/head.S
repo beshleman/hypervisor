@@ -121,7 +121,7 @@ _start:
         adr 	x0, _start
         adr 	x1, _end
 	mov    x2, x10
-	b start_mythril
+	b start_hypervisor
 
 	nop
 	.size _start, . - _start

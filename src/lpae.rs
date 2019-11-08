@@ -8,6 +8,8 @@
  */
 #![allow(dead_code)]
 
+use crate::memory_attrs::PTE_ATTR_INNER_SHARE_MASK;
+
 pub type VirtualAddress = u64;
 pub type PageTable = [PageTableEntry; 512];
 
@@ -110,10 +112,6 @@ const PTE_ATTR_BITS: u64  = 3;
 const PTE_ATTR_UNSHIFTED_MASK: u64 = (1 << PTE_ATTR_BITS) - 1;
 const PTE_ATTR_MASK: u64  = PTE_ATTR_UNSHIFTED_MASK << PTE_ATTR_SHIFT;
 
-/* Shareability attributes */
-/* This makes the page entry SMP coherent */
-const PTE_ATTR_INNER_SHARE_MASK: u64 = 0x3 << PTE_ATTR_SHIFT;
-
 const PTE_NON_SECURE_SHIFT: u64  = 5;
 const PTE_NON_SECURE_BITS: u64   = 1;
 const PTE_NON_SECURE_UNSHIFTED_MASK: u64   = (1 << PTE_NON_SECURE_BITS) - 1;
@@ -193,9 +191,8 @@ impl PageTableEntry {
             address |= PTE_NON_SECURE_MASK;
 
             /* Hypervisor mappings are SMP coherent / inner shareable */
-            address |= PTE_ATTR_INNER_SHARE_MASK;
+            address &= !PTE_ATTR_INNER_SHARE_MASK;
 
-            /* TODO: Set table bit */
             return PageTableEntry{ pte: address };
     }
 
@@ -206,11 +203,8 @@ impl PageTableEntry {
             address |= PTE_TABLE;
             address |= PTE_VALID;
 
-            /* TODO: Support other shareability attrs */
             /* Hypervisor mappings are SMP coherent / inner shareable */
-
-            /* TODO: MOVE THIS definintion TO memory__attrs  */
-            address |= PTE_ATTR_INNER_SHARE_MASK;
+            address &= !PTE_ATTR_INNER_SHARE_MASK;
 
             /* TODO: Set block bit */
             return PageTableEntry{ pte: address << PTE_SHIFT };
