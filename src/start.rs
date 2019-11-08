@@ -12,12 +12,9 @@ use crate::lpae::{
 };
 
 use crate::{msr, mrs};
+use crate::common::bit;
 use crate::memory_attrs;
 use crate::aarch64::{current_el, Shareable, data_barrier, isb};
-
-const fn bit(x: u64) -> u64 {
-    1 << x
-}
 
 const SCTLR_EL2_RES1: u64 = (bit(4) | bit(5) | bit(11) |
                              bit(16) | bit(18) | bit(22) |
@@ -61,7 +58,7 @@ fn map_address_range(virt_start: u64, virt_end: u64, phys_start: u64) -> () {
 fn setup_boot_pagetables(start: u64, end: u64, _offset: u64) -> () {
     /*
      * This pagetable code assumes that we can fit the entire hypervisor
-     * into a single stage1 table mapping, which is 2MB.
+     * into a single stage1, 4-level table mapping, which is 2MB.
      *
      * Panic if the hypervisor is larger than 2MB.
      */

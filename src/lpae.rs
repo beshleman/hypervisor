@@ -9,6 +9,7 @@
 #![allow(dead_code)]
 
 use crate::memory_attrs::PTE_ATTR_INNER_SHARE_MASK;
+use crate::common::{bit, bitfield};
 
 pub type VirtualAddress = u64;
 pub type PageTable = [PageTableEntry; 512];
@@ -54,12 +55,6 @@ impl Alignment {
             Alignment::Kb4 => ALIGN_4K_MASK,
         }
     }
-}
-
-/* ARM LPAE entries are 64-bit */
-#[derive(Copy, Clone, Debug)]
-pub struct PageTableEntry {
-    pub pte: u64,
 }
 
 /**
@@ -150,30 +145,22 @@ const PTE_TABLE: u64 = 1 << PTE_TABLE_SHIFT;
 const PTE_NOT_SECURE: u64 = 5;
 const PTE_UNPRIVILEGED_ACCESS: u64 = 6;
 const PTE_NOT_GLOBAL: u64 = 7;
+    
+/// ARM 64-bit LPAE entries
+/// Refer to the ARM Reference Manual, Figure D5-15 for 
+/// the format of these block and table descriptors.
+#[derive(Copy, Clone, Debug)]
+pub struct PageTableEntry {
+    pub pte: u64,
+}
 
-/*
- *
- *
- *            
-    .valid = 1,           /* Mappings are present */
-    .table = 0,           /* Set to 1 for links and 4k maps */
-    .ai = attr,
-    .ns = 1,              /* Hyp mode is in the non-secure world */
-    .up = 1,              /* See below */
-    .ro = 0,              /* Assume read-write */
-    .af = 1,              /* No need for access tracking */
-    .ng = 1,              /* Makes TLB flushes easier */
-    .contig = 0,          /* Assume non-contiguous */
-    .xn = 1,              /* No need to execute outside .text */
-    .avail = 0,
+// The AP_TABLE_BITS is RES0 for EL2 w/ no ARMv8.1-VHE
+const AP_TABLE_BITS: u64 = bitfield(62, 61);
+const TABLE_DESCRIPTOR_RES0: u64 = bitfield(51, 48) | AP_TABLE_BITS;
+const TABLE_NON_SECURE: u64 = bit(63);
 
-#define MT_DEVICE_nGnRnE 0x0
-#define MT_NORMAL_NC     0x1
-#define MT_NORMAL_WT     0x2
-#define MT_NORMAL_WB     0x3
-#define MT_DEVICE_nGnRE  0x4
-#define MT_NORMAL        0x7
-    */
+// The maxium output address for the Cortex-A53
+const CORTEX_A53_MAX_OA: u64 = (1 << 40) - 1;
 
 impl PageTableEntry {
     pub fn new(pte: u64) -> PageTableEntry {
@@ -181,33 +168,67 @@ impl PageTableEntry {
     }
 
     pub fn from_table(table: &PageTable) -> PageTableEntry {
-            let mut address = (table as *const PageTable) as u64;
+        const address: u64 = (table as *const PageTable) as u64;
+        let mut descriptor: u64 = 0;
 
-            // Implement this: PT_PT     0xf7f /* nG=1 AF=1 SH=11 AP=01 NS=1 ATTR=111 T=1 P=1 */
+        // Set next level table address
+        descriptor |=  (address >> 12) << 12;
+        
+        // This is hypervisor memory, so set the Non-Secure Table bit to 1
+        descriptor |= TABLE_NON_SECURE;
+        descriptor |= PTE_VALID;
+        descriptor |= PTE_TABLE;
 
-            address <<= PTE_SHIFT;
-            address |= PTE_VALID;
-            address |= PTE_TABLE;
-            address |= PTE_NON_SECURE_MASK;
-
-            /* Hypervisor mappings are SMP coherent / inner shareable */
-            address &= !PTE_ATTR_INNER_SHARE_MASK;
-
-            return PageTableEntry{ pte: address };
+        assert_eq(descriptor & TABLE_DESCRIPTOR_RES0, 0);
+        return PageTableEntry{ pte: descriptor };
     }
 
+    /// Currently we only support level-3, 4KB blocks
+    ///
+    /// The documentation for these blocks can be found
+    /// in "Figure D5-17 VMSAv8-64 level 3 descriptor format"
+    /// of the ARMv8 reference manual.
     pub fn from_block(mut address: u64) -> PageTableEntry {
-            address <<= PTE_SHIFT;
+        assert!(address < CORTEX_A53_MAX_OA);
+        let mut descriptor = 0;
 
-            /* For 4K mappings, PTE_TABLE is set too*/
-            address |= PTE_TABLE;
-            address |= PTE_VALID;
+        descriptor |= address & !((1 << 12) - 1);
 
-            /* Hypervisor mappings are SMP coherent / inner shareable */
-            address &= !PTE_ATTR_INNER_SHARE_MASK;
+        /* For 4K mappings, PTE_TABLE is set too*/
+        descriptor |= PTE_TABLE;
+        descriptor |= PTE_VALID;
 
-            /* TODO: Set block bit */
-            return PageTableEntry{ pte: address << PTE_SHIFT };
+        // 0xf7f == nG=1 AF=1 SH=11 AP=01 NS=1 ATTR=111 T=1 P=1 */
+
+        // Use memory attr 000, which is inner-shareable, WBWA
+        descriptor &= !(bit(4) | bit(3) | bit(2));
+
+        // This is a Non-Secure block, NS == 1
+        descriptor |= bit(5);
+
+        // Access Permissions == EL2 Read/Write, no EL1 or EL0 access
+        // (i.e., AP[1:0]  == 00)
+        descriptor &= !(bit(7) | bit(6));
+
+        // Hypervisor pages are inner-shareable, so as to be
+        // coherent across PEs, (i.e, SH == 11)
+        descriptor |= bit(9) | bit(8);
+
+        /*
+         * In ARMv8, software must manage the access flag.
+         * If it is NOT set to 1, then attempts at loadding this
+         * entry into the TLB will cause an Access flag fault.
+         */
+        descriptor |= bit(10);
+
+        /* Set to non-Global = 0, because we don't support ASIDs yet.
+         * TODO: Support ASIDs
+         */
+        descriptor &= !bit(11);
+
+        /* TODO: implement Upper attributes */
+
+        return PageTableEntry{ pte: descriptor };
     }
 }
 

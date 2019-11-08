@@ -9,6 +9,7 @@ mod start;
 mod lpae;
 mod memory_attrs;
 mod aarch64;
+mod common;
 
 pub use start::start_hypervisor;
 
