@@ -8,7 +8,28 @@
  * or the ARM Cortex-A Programmer's Guide.
  */ 
 
+use crate::common::bit;
 use crate::msr;
+
+const INNER_SHARE_WRITE_BACK_WRITE_ALLOC: u64 = !(bit(4) | bit(3) | bit(2));
+
+        
+pub enum MemAttr {
+    InnerShareWriteBackWriteAlloc,
+    ClearMask = !(bit(4) | bit(3) | bit(2)),
+}
+
+impl MemAttr {
+    pub fn mask(&self) -> u64 {
+        match *self {
+            MemAttr::InnerShareWriteBackWriteAlloc => INNER_SHARE_WRITE_BACK_WRITE_ALLOC,
+        }
+    }
+
+    pub fn clear_mask() -> u64 {
+        !(bit(4) | bit(3) | bit(2))
+    }
+}
 
 /**
  * For right now we only configure "Normal, Write-back, Write-allocate"

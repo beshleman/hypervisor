@@ -9,6 +9,7 @@
 #![allow(dead_code)]
 
 use crate::common::{bit, bitfield};
+use crate::memory_attrs::MemAttr;
 
 pub type VirtualAddress = u64;
 
@@ -162,13 +163,127 @@ const TABLE_NON_SECURE: u64 = bit(63);
 // The maxium output address for the Cortex-A53
 const CORTEX_A53_MAX_OA: u64 = (1 << 40) - 1;
 
-impl PageTableEntry {
-    pub fn new(pte: u64) -> PageTableEntry {
-        return PageTableEntry { pte: pte };
+const BLOCK_ADDRESS_MASK: u64 = !((1 << PAGE_SHIFT) - 1);
+
+pub enum PteShareability {
+    Inner,
+}
+
+#[derive(PartialEq)]
+pub enum PteType {
+    Block,
+    Table
+}
+
+pub enum PteSize {
+    Kb4,
+}
+
+pub enum PteAccessPerms {
+    EL2,
+}
+
+pub struct PteBuilder {
+    pte: u64,
+    pte_type: PteType,
+    size: PteSize,
+}
+
+impl PteBuilder {
+    pub fn new(pte_type: PteType, size: PteSize) -> PteBuilder {
+        const ACCESS_FLAG: u64 = bit(10);
+
+        let mut default_pte = 0;
+
+        default_pte |= ACCESS_FLAG | PTE_VALID;
+
+        // 4KB Blocks also have the PTE_TABLE bit set
+        if (pte_type == PteType::Block && size == PteSize::Kb4) {
+            default_pte |= PTE_TABLE;
+        }
+
+        if (pte_type == PteType::Table) {
+                default_pte |= PTE_TABLE;
+        }
+
+        PteBuilder {
+            pte_type: pte_type,
+            size: size,
+            pte: default_pte
+        }
     }
 
-    pub fn from_table(table: &PageTable) -> PageTableEntry {
-        let address: u64 = (table as *const PageTable) as u64;
+    pub fn address<'a>(&'a mut self, address: u64) -> &'a mut PteBuilder {
+        const PAGE_SHIFT_4K: u64 = 12;
+
+        let mask = match self.size {
+            PteSize::Kb4 => !((1 << PAGE_SHIFT_4K) - 1),
+        };
+
+        self.pte |= address & mask;
+        self
+    }
+
+    pub fn mem_attr<'a>(&'a mut self, attr: MemAttr) -> &'a mut PteBuilder {
+        self.pte &= MemAttr::clear_mask();
+        self.pte |= attr.mask();
+        self
+    }
+
+    pub fn non_secure<'a>(&'a mut self, val: bool) -> &'a mut PteBuilder {
+        const NON_SECURE_BIT: u64 = bit(5);
+        match val {
+            true => self.pte |= NON_SECURE_BIT,
+            false => self.pte &= !NON_SECURE_BIT,
+        }
+
+        self
+    }
+
+    pub fn access_perms<'a>(&'a mut self, access_perms: PteAccessPerms) -> &'a mut PteBuilder {
+        self.pte &= !(bit(7) | bit(6));
+
+        let mask = match access_perms {
+            PteAccessPerms::EL2 => !(bit(7) | bit(6))
+        }
+
+        self.pte |= mask;
+        self
+    }
+
+    pub fn shareability<'a>(&'a mut self, share: PteShareability) -> &'a mut PteBuilder {
+        match share {
+            PteShareability::Inner => self.pte |= bit(9) | bit(8)
+        }
+
+        self
+    }
+
+    pub fn non_global<'a>(&'a mut self, non_global: bool) -> &'a mut PteBuilder {
+        /* We don't support Non-Global because we don't support ASIDs yet.
+         * TODO: Support ASIDs
+         */
+        if non_global {
+            unimplemented!();
+        } else {
+            self.pte &= !bit(11);
+        }
+
+        self
+    }
+
+    pub fn build(&self) -> PageTableEntry {
+        PageTableEntry { pte: self.pte }
+    }
+}
+
+
+impl PageTableEntry {
+    pub fn new(pte: u64) -> PageTableEntry {
+        PageTableEntry { pte: pte }
+    }
+
+    pub fn from_table_address(address: u64) -> PageTableEntry {
         let mut descriptor: u64 = 0;
 
         // Set next level table address
@@ -180,7 +295,14 @@ impl PageTableEntry {
         descriptor |= PTE_TABLE;
 
         assert_eq!(descriptor & TABLE_DESCRIPTOR_RES0, 0);
-        return PageTableEntry{ pte: descriptor };
+
+        PageTableEntry{ pte: descriptor }
+    }
+
+    pub fn from_table(table: &PageTable) -> PageTableEntry {
+        let address: u64 = (table as *const PageTable) as u64;
+
+        PageTableEntry::from_table_address(address)
     }
 
     /// Currently we only support level-3, 4KB blocks
@@ -228,7 +350,7 @@ impl PageTableEntry {
 
         /* TODO: implement Upper attributes */
 
-        return PageTableEntry{ pte: descriptor };
+        PageTableEntry{ pte: descriptor }
     }
 }
 

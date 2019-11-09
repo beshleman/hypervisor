@@ -1,6 +1,11 @@
 use crate::lpae::{
     PageTableEntry,
     PageTable,
+    PteBuilder,
+    PteAccessPerms,
+    PteShareability,
+    PteSize,
+    PteType,
     Alignment,
     align,
     ADDRESS_SPACE_PER_TABLE,
@@ -14,6 +19,7 @@ use crate::lpae::{
 use crate::{msr, mrs};
 use crate::common::bit;
 use crate::memory_attrs;
+use crate::memory_attrs::MemAttr;
 use crate::aarch64::{current_el, Shareable, data_barrier, isb};
 
 const SCTLR_EL2_RES1: u64 = (bit(4) | bit(5) | bit(11) |
@@ -38,18 +44,59 @@ fn map_address_range(virt_start: u64, virt_end: u64, phys_start: u64) -> () {
     let end = align(virt_end, Alignment::Kb4);
     let mut paddr = align(phys_start, Alignment::Kb4);
 
+    /* Get the addresses for our boot page tables */
+    let first_address = unsafe { &FIRST as *const PageTable as u64 };
+    let second_address = unsafe { &SECOND as *const PageTable as u64 };
+    let third_address = unsafe { &THIRD as *const PageTable as u64 };
+
+    /* Build entries from the addresses */
+    let first_entry = PageTableEntry::from_table_address(first_address);
+    let second_entry = PageTableEntry::from_table_address(second_address);
+    let third_entry = PageTableEntry::from_table_address(third_address);
+
+
+    /*
+     * Remember: we are only mapping 2MB for the hypervisor itself.  Because
+     * a single third level table can hold enough entries for 2MB (4KB * 512 entries),
+     * this means we will only be using one entry in each of the zeroeth, first, and
+     * second level tables in order to populate the tree from the root to that third
+     * level table that now maps the hypervisor.  These zeroeth, first, and second
+     * level indexes won't change.
+     */
+    let index0 = pagetable_zeroeth_index(start);
+    let index1 = pagetable_first_index(start);
+    let index2 = pagetable_second_index(start);
+
+    unsafe {
+        ZEROETH[index0] = first_entry;
+        FIRST[index1] = second_entry;
+        SECOND[index2] = third_entry;
+    }
+
+    // Now lets map the hypervisor into the third level table
     for vaddr in (start..end).step_by(PAGE_SIZE) {
-        let index0 = pagetable_zeroeth_index(vaddr);
-        let index1 = pagetable_first_index(vaddr);
-        let index2 = pagetable_second_index(vaddr);
         let index3 = pagetable_third_index(vaddr);
 
+
+        let pte =
+            PteBuilder::new(PteType::Block, PteSize::Kb4)
+                .address(paddr)
+                .non_global(false)
+                .non_secure(true)
+                .mem_attr(MemAttr::InnerShareWriteBackWriteAlloc)
+                .access_perms(PteAccessPerms::EL2)
+                .shareability(PteShareability::Inner)
+                .build();
+
         unsafe {
-            ZEROETH[index0] = PageTableEntry::from_table(&FIRST);
-            FIRST[index1] = PageTableEntry::from_table(&SECOND);
-            SECOND[index2] = PageTableEntry::from_table(&THIRD);
+            THIRD[index3] = pte;
+        }
+
+        /*
+        unsafe {
             THIRD[index3] = PageTableEntry::from_block(paddr);
         }
+        */
             
         paddr += PAGE_SIZE as u64;
     }
@@ -174,7 +221,14 @@ fn init_sctlr() -> () {
 
 #[no_mangle]
 pub fn start_hypervisor(start: u64, end: u64, offset: u64) -> ! {
+    /* EL2 is required, doh! */
     assert_eq!(current_el(), 2);
+
+    /* Arbitrary load location has not been implemented yet! */
+    if offset != 0 {
+        unimplemented!();
+    }
+
     disable_interrupts();
 
     /*
