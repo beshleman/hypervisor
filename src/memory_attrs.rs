@@ -10,11 +10,6 @@
 
 use crate::msr;
 
-/* Shareability attributes */
-/* This makes the page entry SMP coherent */
-const PTE_ATTR_SHIFT: u64  = 2;
-pub const PTE_ATTR_INNER_SHARE_MASK: u64 = 0x3 << PTE_ATTR_SHIFT;
-
 /**
  * For right now we only configure "Normal, Write-back, Write-allocate"
  * memory.  This is what will be used by the hypervisor.  Once we

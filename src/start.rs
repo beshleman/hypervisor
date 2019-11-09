@@ -172,14 +172,9 @@ fn init_sctlr() -> () {
     isb();
 }
 
-fn check_el2() -> () {
-    let el = current_el();
-    assert_eq!(el, 2);
-}
-
 #[no_mangle]
-pub fn start_hypervisor(start: u64, end: u64, offset: u64) -> () {
-    check_el2();
+pub fn start_hypervisor(start: u64, end: u64, offset: u64) -> ! {
+    assert_eq!(current_el(), 2);
     disable_interrupts();
 
     /*
@@ -201,4 +196,6 @@ pub fn start_hypervisor(start: u64, end: u64, offset: u64) -> () {
     }
 
     enable_mmu();
+
+    loop {}
 }

@@ -8,11 +8,9 @@
  */
 #![allow(dead_code)]
 
-use crate::memory_attrs::PTE_ATTR_INNER_SHARE_MASK;
 use crate::common::{bit, bitfield};
 
 pub type VirtualAddress = u64;
-pub type PageTable = [PageTableEntry; 512];
 
 const PAGE_SHIFT: u64 = 12;
 const PAGE_MASK: u64 = (1 << PAGE_SHIFT) - 1;
@@ -154,6 +152,8 @@ pub struct PageTableEntry {
     pub pte: u64,
 }
 
+pub type PageTable = [PageTableEntry; 512];
+
 // The AP_TABLE_BITS is RES0 for EL2 w/ no ARMv8.1-VHE
 const AP_TABLE_BITS: u64 = bitfield(62, 61);
 const TABLE_DESCRIPTOR_RES0: u64 = bitfield(51, 48) | AP_TABLE_BITS;
@@ -168,7 +168,7 @@ impl PageTableEntry {
     }
 
     pub fn from_table(table: &PageTable) -> PageTableEntry {
-        const address: u64 = (table as *const PageTable) as u64;
+        let address: u64 = (table as *const PageTable) as u64;
         let mut descriptor: u64 = 0;
 
         // Set next level table address
@@ -179,7 +179,7 @@ impl PageTableEntry {
         descriptor |= PTE_VALID;
         descriptor |= PTE_TABLE;
 
-        assert_eq(descriptor & TABLE_DESCRIPTOR_RES0, 0);
+        assert_eq!(descriptor & TABLE_DESCRIPTOR_RES0, 0);
         return PageTableEntry{ pte: descriptor };
     }
 
@@ -188,7 +188,7 @@ impl PageTableEntry {
     /// The documentation for these blocks can be found
     /// in "Figure D5-17 VMSAv8-64 level 3 descriptor format"
     /// of the ARMv8 reference manual.
-    pub fn from_block(mut address: u64) -> PageTableEntry {
+    pub fn from_block(address: u64) -> PageTableEntry {
         assert!(address < CORTEX_A53_MAX_OA);
         let mut descriptor = 0;
 
