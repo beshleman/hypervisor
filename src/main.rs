@@ -4,6 +4,7 @@
 #![feature(asm)]
 #![feature(trace_macros)]
 #![feature(const_fn)]
+#![allow(dead_code)]
 
 mod start;
 mod lpae;

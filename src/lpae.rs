@@ -149,7 +149,21 @@ const PTE_NOT_GLOBAL: u64 = 7;
 /// the format of these block and table descriptors.
 #[derive(Copy, Clone, Debug)]
 pub struct PageTableEntry(pub u64);
-pub type PageTable = [PageTableEntry; 512];
+
+#[repr(align(4096))]
+pub struct PageTable {
+    pub entries: [PageTableEntry; 512],
+}
+
+impl PageTable {
+    pub fn new() -> PageTable {
+        PageTable {
+                entries: [PageTableEntry(0); 512]
+        }
+    }
+}
+
+//pub type PageTable = [PageTableEntry; 512];
 
 // The AP_TABLE_BITS is RES0 for EL2 w/ no ARMv8.1-VHE
 const AP_TABLE_BITS: u64 = bitfield(62, 61);
