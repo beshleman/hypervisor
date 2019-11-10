@@ -103,6 +103,22 @@ pub fn disable_interrupts() -> () {
     }
 }
 
+const HCR_IMO: u64 = bit(3);
+const HCR_FMO: u64 = bit(4);
+const HCR_AMO: u64 = bit(5);
+
+pub fn enable_interrupts() -> () {
+    /* Can't use msr!() because DAIFSet only takes immedates */
+    unsafe {
+        asm!("msr DAIFSet, 0x0");
+    }
+
+    let mut hcr_el2: u64;
+    mrs!(hcr_el2, "HCR_EL2");
+    hcr_el2 |= HCR_AMO | HCR_FMO | HCR_IMO;
+    msr!("HCR_EL2", hcr_el2);
+}
+
 fn flush_hypervisor_tlb() -> () {
     unsafe { asm!("tlbi alle2") };
     data_barrier(Shareable::Non);
@@ -191,19 +207,30 @@ fn init_sctlr() -> () {
     isb();
 }
 
-fn irq_handler() -> () {
+#[no_mangle]
+pub extern fn irq_handler() -> ! {
     loop {}
 }
 
 
-fn init_interrupts() -> () {
-    let vbar_el2 = &irq_handler as *const _ as u64;
+fn init_interrupts(irq_vector_addr: u64) -> () {
+    let vbar_el2 = irq_vector_addr;
 
-    msr!("VBAR_EL2", vbar_el2 << 11);
+    // If the implementation does not support ARMv8.2-LVA, then
+    // bits VBAR_EL2[63:48] must be zero.
+    match vbar_el2 & !((1<<48) - 1) {
+        0 => {
+            msr!("VBAR_EL2", vbar_el2);
+            isb();
+            enable_interrupts();
+        },
+        _ => loop {}
+    }
+
 }
 
 #[no_mangle]
-pub extern fn start_hypervisor(start: u64, end: u64, offset: u64) -> ! {
+pub extern fn start_hypervisor(start: u64, end: u64, offset: u64, irq_vector_addr: u64) -> ! {
     assert_eq!(current_el(), 2);
     disable_interrupts();
 
@@ -226,7 +253,7 @@ pub extern fn start_hypervisor(start: u64, end: u64, offset: u64) -> ! {
     let ttbr0_el2 = &boot_table_tree.zeroeth as *const _ as u64;
     switch_ttbr(ttbr0_el2);
     enable_mmu();
-    init_interrupts();
+    init_interrupts(irq_vector_addr);
 
     // cause interrupt
     unsafe {
