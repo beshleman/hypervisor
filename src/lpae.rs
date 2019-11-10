@@ -148,10 +148,7 @@ const PTE_NOT_GLOBAL: u64 = 7;
 /// Refer to the ARM Reference Manual, Figure D5-15 for 
 /// the format of these block and table descriptors.
 #[derive(Copy, Clone, Debug)]
-pub struct PageTableEntry {
-    pub pte: u64,
-}
-
+pub struct PageTableEntry(pub u64);
 pub type PageTable = [PageTableEntry; 512];
 
 // The AP_TABLE_BITS is RES0 for EL2 w/ no ARMv8.1-VHE
@@ -163,10 +160,6 @@ const TABLE_NON_SECURE: u64 = bit(63);
 const CORTEX_A53_MAX_OA: u64 = (1 << 40) - 1;
 
 impl PageTableEntry {
-    pub fn new(pte: u64) -> PageTableEntry {
-        return PageTableEntry { pte: pte };
-    }
-
     pub fn from_table(table: &PageTable) -> PageTableEntry {
         let address: u64 = (table as *const PageTable) as u64;
         let mut descriptor: u64 = 0;
@@ -180,7 +173,7 @@ impl PageTableEntry {
         descriptor |= PTE_TABLE;
 
         assert_eq!(descriptor & TABLE_DESCRIPTOR_RES0, 0);
-        return PageTableEntry{ pte: descriptor };
+        return PageTableEntry(descriptor);
     }
 
     /// Currently we only support level-3, 4KB blocks
@@ -228,7 +221,7 @@ impl PageTableEntry {
 
         /* TODO: implement Upper attributes */
 
-        return PageTableEntry{ pte: descriptor };
+        return PageTableEntry(descriptor);
     }
 }
 

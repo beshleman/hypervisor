@@ -28,10 +28,10 @@ const TCR_EL2_RES1: u64 = bit(31) | bit(23);
 
 /* TODO: look into options for avoiding static mut */
 /* TODO: Use borrow checker to maintain single references (singleton) */
-static mut ZEROETH: PageTable = [PageTableEntry { pte: 0 }; 512];
-static mut FIRST: PageTable = [PageTableEntry { pte: 0 }; 512];
-static mut SECOND: PageTable = [PageTableEntry { pte: 0 }; 512];
-static mut THIRD: PageTable = [PageTableEntry { pte: 0 }; 512];
+static mut ZEROETH: PageTable = [PageTableEntry(0); 512];
+static mut FIRST: PageTable = [PageTableEntry(0); 512];
+static mut SECOND: PageTable = [PageTableEntry(0); 512];
+static mut THIRD: PageTable = [PageTableEntry(0); 512];
 
 fn map_address_range(virt_start: u64, virt_end: u64, phys_start: u64) -> () {
     let start = align(virt_start, Alignment::Kb4);
@@ -88,9 +88,8 @@ fn flush_hypervisor_tlb() -> () {
     data_barrier(Shareable::Non);
 }
 
-fn switch_ttbr(pagetable: &PageTable) -> () {
-    let ttbr0_el2 = &pagetable as *const _ as u64;
-    msr!("TTBR0_EL2", ttbr0_el2);
+fn switch_ttbr(pagetable_address: u64) -> () {
+    msr!("TTBR0_EL2", pagetable_address);
     isb();
 }
 
@@ -191,10 +190,8 @@ pub fn start_hypervisor(start: u64, end: u64, offset: u64) -> ! {
     /* Flush the tlb just in case there is stale state */
     flush_hypervisor_tlb();
 
-    unsafe {
-        switch_ttbr(&ZEROETH);
-    }
-
+    let ttbr0_el2 = unsafe { &ZEROETH as *const _ as u64 };
+    switch_ttbr(ttbr0_el2);
     enable_mmu();
 
     loop {}
