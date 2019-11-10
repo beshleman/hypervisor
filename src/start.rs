@@ -107,7 +107,7 @@ const HCR_IMO: u64 = bit(3);
 const HCR_FMO: u64 = bit(4);
 const HCR_AMO: u64 = bit(5);
 
-pub fn enable_interrupts() -> () {
+pub fn trap_lower_irq_into_el2() -> () {
     /* Can't use msr!() because DAIFSet only takes immedates */
     unsafe {
         asm!("msr DAIFSet, 0x0");
@@ -222,7 +222,7 @@ fn init_interrupts(irq_vector_addr: u64) -> () {
         0 => {
             msr!("VBAR_EL2", vbar_el2);
             isb();
-            enable_interrupts();
+            trap_lower_irq_into_el2();
         },
         _ => loop {}
     }
