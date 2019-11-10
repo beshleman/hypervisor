@@ -113,7 +113,7 @@ _start:
         b.lo    1b
 
         /* Update the stack pointer */
-	ldr	x1, =start_stack
+	ldr	x1, =end_stack
 	mov	sp, x1
 
 	/* Pass start, end, and phys offset to Rust */

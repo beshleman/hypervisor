@@ -26,14 +26,14 @@ const TCR_EL2_OUTER_WRITE_BACK_WRITE_ALLOC: u64 = bit(10);
 const TCR_EL2_INNER_SHAREABLE: u64 = bit(12) | bit(13);
 const TCR_EL2_RES1: u64 = bit(31) | bit(23);
 
-/* TODO: look into options for avoiding static mut */
-/* TODO: Use borrow checker to maintain single references (singleton) */
-static mut ZEROETH: PageTable = [PageTableEntry(0); 512];
-static mut FIRST: PageTable = [PageTableEntry(0); 512];
-static mut SECOND: PageTable = [PageTableEntry(0); 512];
-static mut THIRD: PageTable = [PageTableEntry(0); 512];
+fn map_address_range(zeroeth: &mut PageTable,
+                     first:   &mut PageTable,
+                     second:  &mut PageTable,
+                     third:   &mut PageTable,
+                     virt_start: u64,
+                     virt_end: u64,
+                     phys_start: u64) -> () {
 
-fn map_address_range(virt_start: u64, virt_end: u64, phys_start: u64) -> () {
     let start = align(virt_start, Alignment::Kb4);
     let end = align(virt_end, Alignment::Kb4);
     let mut paddr = align(phys_start, Alignment::Kb4);
@@ -44,18 +44,22 @@ fn map_address_range(virt_start: u64, virt_end: u64, phys_start: u64) -> () {
         let index2 = pagetable_second_index(vaddr);
         let index3 = pagetable_third_index(vaddr);
 
-        unsafe {
-            ZEROETH[index0] = PageTableEntry::from_table(&FIRST);
-            FIRST[index1] = PageTableEntry::from_table(&SECOND);
-            SECOND[index2] = PageTableEntry::from_table(&THIRD);
-            THIRD[index3] = PageTableEntry::from_block(paddr);
-        }
+        zeroeth[index0] = PageTableEntry::from_table(&first);
+        first[index1] = PageTableEntry::from_table(&second);
+        second[index2] = PageTableEntry::from_table(&third);
+        third[index3] = PageTableEntry::from_block(paddr);
             
         paddr += PAGE_SIZE as u64;
     }
 }
 
-fn setup_boot_pagetables(start: u64, end: u64, _offset: u64) -> () {
+fn setup_boot_pagetables(zeroeth: &mut PageTable,
+                         first:   &mut PageTable,
+                         second:  &mut PageTable,
+                         third:   &mut PageTable,
+                         start: u64,
+                         end: u64,
+                         _offset: u64) -> () {
     /*
      * This pagetable code assumes that we can fit the entire hypervisor
      * into a single stage1, 4-level table mapping, which is 2MB.
@@ -65,10 +69,19 @@ fn setup_boot_pagetables(start: u64, end: u64, _offset: u64) -> () {
     assert!(!(end - start > (ADDRESS_SPACE_PER_TABLE as u64)));
 
     /* Identity map the hypervisor (virtual address == physical address) */
-    map_address_range(start, end, start);
+    map_address_range(zeroeth,
+                      first,
+                      second,
+                      third,
+                      start, end, start);
 
     /* Map the hypervisor load address space to its real physical address space */
-    map_address_range(start + _offset, end + _offset, start);
+    map_address_range(zeroeth,
+                      first,
+                      second,
+                      third,
+                      start + _offset,
+                      end + _offset, start);
 
     /* TODO: map RO, .text, .bss, etc... separately w/ appropriate permissions */
 
@@ -172,7 +185,7 @@ fn init_sctlr() -> () {
 }
 
 #[no_mangle]
-pub fn start_hypervisor(start: u64, end: u64, offset: u64) -> ! {
+pub extern fn start_hypervisor(start: u64, end: u64, offset: u64) -> ! {
     assert_eq!(current_el(), 2);
     disable_interrupts();
 
@@ -185,12 +198,22 @@ pub fn start_hypervisor(start: u64, end: u64, offset: u64) -> ! {
     init_tcr();
     init_sctlr();
     unsafe { asm!("msr spsel, #1") }
-    setup_boot_pagetables(start, end, offset);
+
+
+    /* TODO: look into options for avoiding static mut */
+    /* TODO: Use borrow checker to maintain single references (singleton) */
+    /* TODO: zero these tables */
+    let mut zeroeth: PageTable = [PageTableEntry(0); 512];
+    let mut first: PageTable = [PageTableEntry(0); 512];
+    let mut second: PageTable = [PageTableEntry(0); 512];
+    let mut third: PageTable = [PageTableEntry(0); 512];
+
+    setup_boot_pagetables(&mut zeroeth, &mut first, &mut second, &mut third, start, end, offset);
 
     /* Flush the tlb just in case there is stale state */
     flush_hypervisor_tlb();
 
-    let ttbr0_el2 = unsafe { &ZEROETH as *const _ as u64 };
+    let ttbr0_el2 = &zeroeth as *const _ as u64;
     switch_ttbr(ttbr0_el2);
     enable_mmu();
 
