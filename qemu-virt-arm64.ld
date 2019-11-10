@@ -40,8 +40,8 @@ SECTIONS
         {
                 _start_stack = .;
                 PROVIDE(start_stack = .);
-                /* For now, let's just guarantee 4KB of stack space */
-                . += 0x1000;
+                /* For now, let's just guarantee 64KB of stack space */
+                . += 0x10000;
                 . = ALIGN(8);
                 _end_stack = .;
                 PROVIDE(end_stack = .);
