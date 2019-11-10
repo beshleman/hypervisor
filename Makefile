@@ -5,7 +5,7 @@ CFLAGS=-Werror -Wredundant-decls -Wno-pointer-arith -nostdinc      \
 
 LINKER := qemu-virt-arm64.ld
 
-.PHONY: all
+.PHONY: all clean
 
 all: src/head.o
 	xargo rustc --bin hypervisor --target aarch64-unknown-linux-gnu -- -C link-arg=-nostartfiles -C panic=abort -C link-arg=-T$(LINKER) -C link-arg=src/head.o
@@ -19,3 +19,7 @@ src/head.o: src/head.S
 .PHONY: dump
 dump:
 	aarch64-linux-gnu-objdump -S target/aarch64-unknown-linux-gnu/debug/hypervisor | less
+
+clean:
+	xargo clean
+	rm src/head.o
