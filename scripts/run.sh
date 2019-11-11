@@ -19,4 +19,5 @@ qemu-system-aarch64 -M virt -cpu cortex-a53 -nographic -smp 1 \
     -kernel /home/bobbye/projects/hypervisor/target/aarch64-unknown-linux-gnu/debug/hypervisor.bin	\
     -machine virtualization=true	\
     -drive if=none,id=hd0,file=/home/bobbye/projects/disk.img \
-    -device virtio-blk-device,drive=hd0 -S -s
+    -device virtio-blk-device,drive=hd0 -S -s	\
+    -device loader,file=../u-boot/u-boot.bin,addr=0x40400000

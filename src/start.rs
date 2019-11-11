@@ -229,8 +229,39 @@ fn init_interrupts(irq_vector_addr: u64) -> () {
 
 }
 
+pub fn load_guest() -> () {
+    let guest_address: u64 = 0x40400000;
+
+    /*
+     * To return from an exception, use the ERET instruction. This instruction restores
+     * processor state
+     * by copying SPSR_ELn to PSTATE and branches to the saved return address in ELR_ELn.
+     */
+
+    msr!("ELR_EL2", guest_address);
+
+    /* TODO: use gdb to read the SPSR_EL1 here */
+    /*
+    let ptr = _guest_address as *const ();
+    unsafe {
+        let code: extern "C" fn() = core::mem::transmute(ptr);
+        (code)();
+    }
+    */
+
+    let spsr_el2: u64 = bit(0) | bit(2);
+    msr!("SPSR_EL2", spsr_el2);
+
+    unsafe {
+        asm!("eret");
+    }
+}
+
 #[no_mangle]
-pub extern fn start_hypervisor(start: u64, end: u64, offset: u64, irq_vector_addr: u64) -> ! {
+pub extern fn start_hypervisor(start: u64,
+                               end: u64,
+                               offset: u64,
+                               irq_vector_addr: u64) -> ! {
     assert_eq!(current_el(), 2);
     disable_interrupts();
 
@@ -254,6 +285,8 @@ pub extern fn start_hypervisor(start: u64, end: u64, offset: u64, irq_vector_add
     switch_ttbr(ttbr0_el2);
     enable_mmu();
     init_interrupts(irq_vector_addr);
+
+    load_guest();
 
     // cause interrupt
     unsafe {
