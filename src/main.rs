@@ -11,6 +11,8 @@ mod lpae;
 mod memory_attrs;
 mod aarch64;
 mod common;
+mod frame_alloc;
+mod esr;
 
 pub use start::start_hypervisor;
 

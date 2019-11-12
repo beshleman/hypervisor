@@ -11,75 +11,29 @@ use crate::lpae::{
     pagetable_third_index
 };
 
-use crate::frame_alloc::FrameAllocator;
-use crate::esr::{esr, ExceptionLevel, esr_elx_ec};
 use crate::{msr, mrs};
 use crate::common::bit;
 use crate::memory_attrs;
 use crate::aarch64::{current_el, Shareable, data_barrier, isb};
 
-const UART_BASE: u64 = 0x09000000;
-const UART_SIZE: u64 = 0x00001000;
-
-struct PageTableTree<'a> {
+struct PageTableTree {
     zeroeth: PageTable,
     first: PageTable,
     second: PageTable,
     third: PageTable,
-
-    allocator: &'a mut FrameAllocator,
 }
 
-impl<'a> PageTableTree<'a> {
-    fn new(allocator: &mut FrameAllocator) -> PageTableTree {
+impl PageTableTree {
+    fn new() -> PageTableTree {
         PageTableTree {
             zeroeth: PageTable::new(),
             first: PageTable::new(),
             second: PageTable::new(),
             third: PageTable::new(),
-            allocator: allocator,
         }
-    }
-
-    fn new_table(&self) -> PageTable {
-        PageTable::new()
     }
 
     fn map(&mut self, vaddr: u64, paddr: u64) -> () {
-        let first;
-        let index0 = pagetable_zeroeth_index(vaddr);
-        if self.zeroeth.entries[index0].is_valid() {
-            first = unsafe { self.zeroeth.entries[index0].as_pagetable() };
-        } else {
-            loop {}
-        }
-        
-        let second;
-        let index1 = pagetable_first_index(vaddr);
-        if first.entries[index1].is_valid() {
-            second = unsafe { first.entries[index1].as_pagetable() };
-        } else {
-            loop {}
-        }
-
-
-        let third: &mut PageTable;
-        let index2 = pagetable_second_index(vaddr);
-        if second.entries[index2].is_valid() {
-            third = unsafe { second.entries[index2].as_pagetable() };
-        } else {
-            loop {}
-        }
-
-        let index3 = pagetable_third_index(vaddr);
-        if third.entries[index3].is_valid() {
-            loop {}
-        }
-
-        third.entries[index3] = PageTableEntry::from_block(paddr);
-    }
-
-    fn first_map(&mut self, vaddr: u64, paddr: u64) -> () {
         let index0 = pagetable_zeroeth_index(vaddr);
         let index1 = pagetable_first_index(vaddr);
         let index2 = pagetable_second_index(vaddr);
@@ -112,7 +66,7 @@ fn map_address_range(boot_table_tree: &mut PageTableTree,
     let mut paddr = align(phys_start, Alignment::Kb4);
 
     for vaddr in (start..end).step_by(PAGE_SIZE) {
-        boot_table_tree.first_map(vaddr, paddr);
+        boot_table_tree.map(vaddr, paddr);
         paddr += PAGE_SIZE as u64;
     }
 }
@@ -120,7 +74,7 @@ fn map_address_range(boot_table_tree: &mut PageTableTree,
 fn setup_boot_pagetables(boot_table_tree: &mut PageTableTree,
                          start: u64,
                          end: u64,
-                         offset: u64) -> () {
+                         _offset: u64) -> () {
     /*
      * This pagetable code assumes that we can fit the entire hypervisor
      * into a single stage1, 4-level table mapping, which is 2MB.
@@ -129,19 +83,12 @@ fn setup_boot_pagetables(boot_table_tree: &mut PageTableTree,
      */
     assert!(!(end - start > (ADDRESS_SPACE_PER_TABLE as u64)));
 
-    /* The offset MUST be exactly 1GB from identity map, this way the
-     * level one entries for the identity map and the offset map both
-     * point to the same level two entry, which then maps down to the same level three
-     * and so forth...
-     */
-    assert!((offset % (1 << 30)) == 0);
-
     /* Identity map the hypervisor (virtual address == physical address) */
     map_address_range(boot_table_tree, start, end, start);
 
     /* Map the hypervisor load address space to its real physical address space */
-    map_address_range(boot_table_tree, start + offset,
-                      end + offset, start);
+    map_address_range(boot_table_tree, start + _offset,
+                      end + _offset, start);
 
     /* TODO: map RO, .text, .bss, etc... separately w/ appropriate permissions */
 
@@ -162,7 +109,7 @@ const HCR_FMO: u64 = bit(4);
 const HCR_AMO: u64 = bit(5);
 
 fn enable_virt() -> () {
-    let mut hcr_el2: u64;
+    let mut hcr_el2;
 
     mrs!(hcr_el2, "HCR_EL2");
     hcr_el2 |= HCR_VM;
@@ -269,19 +216,8 @@ fn init_sctlr() -> () {
     isb();
 }
 
-fn uart_write(uart_virt: u64) -> () {
-    unsafe {
-        let p = uart_virt as *mut u64;
-        *p = 88;
-        *p = 89;
-        *p = 90;
-    }
-}
-
 #[no_mangle]
 pub extern fn irq_handler() -> ! {
-    let esr_el2 = esr(ExceptionLevel::EL2);
-    let _ec = esr_elx_ec(esr_el2);
     loop {}
 }
 
@@ -348,14 +284,8 @@ pub extern fn start_hypervisor(start: u64,
     init_sctlr();
     unsafe { asm!("msr spsel, #1") }
 
-    let mut allocator = FrameAllocator::new(end);
-    let mut boot_table_tree = PageTableTree::new(&mut allocator);
+    let mut boot_table_tree = PageTableTree::new();
     setup_boot_pagetables(&mut boot_table_tree, start, end, offset);
-
-
-    let uart_virt = align(end + PAGE_SIZE as u64, Alignment::Kb4);
-    boot_table_tree.first_map(uart_virt, UART_BASE);
-
 
     /* Flush the tlb just in case there is stale state */
     flush_hypervisor_tlb();
@@ -364,17 +294,15 @@ pub extern fn start_hypervisor(start: u64,
     switch_ttbr(ttbr0_el2);
     enable_mmu();
     init_interrupts(irq_vector_addr);
-    uart_write(uart_virt);
+
+    enable_virt();
+    load_guest();
 
     // cause interrupt
     unsafe {
         let p = 0 as *const i32;
         let mut _k = *p;
     }
-
-
-    enable_virt();
-    load_guest();
 
     loop {}
 }

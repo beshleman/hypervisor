@@ -150,6 +150,18 @@ const PTE_NOT_GLOBAL: u64 = 7;
 #[derive(Copy, Clone, Debug)]
 pub struct PageTableEntry(pub u64);
 
+impl PageTableEntry {
+    pub unsafe fn as_pagetable(&self) -> &mut PageTable {
+        let pt_address: u64 = core::mem::transmute(&self);
+        let address = (pt_address & !((1 << 12) - 1)) & CORTEX_A53_MAX_OA;
+        return core::mem::transmute(address); 
+    }
+
+    pub fn is_valid(&self) -> bool {
+        return (self.0 & PTE_VALID) == 1;
+    }
+}
+
 #[repr(align(4096))]
 pub struct PageTable {
     pub entries: [PageTableEntry; 512],

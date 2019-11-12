@@ -15,6 +15,8 @@ set -e
 #    -drive if=none,id=hd0,file=../disk.img \
 #    -device virtio-blk-device,drive=hd0 -S -s
 
+#    -machine dumpdtb=qemu-aarch64.dtb	\
+
 qemu-system-aarch64 -M virt -cpu cortex-a53 -nographic -smp 1 \
     -kernel /home/bobbye/projects/hypervisor/target/aarch64-unknown-linux-gnu/debug/hypervisor.bin	\
     -machine virtualization=true	\
