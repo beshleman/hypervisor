@@ -5,7 +5,7 @@
  */
 
 use crate::mrs;
-
+use crate::uart::uart_write;
 
 const ESR_ELx_EC_UNKNOWN: u64 = (0x00);
 const ESR_ELx_EC_WFx: u64 =  (0x01);
@@ -318,6 +318,7 @@ const ESR_ELx_CP15_32_ISS_SYS_CNTFRQ: u64 = (ESR_ELx_CP15_32_ISS_SYS_VAL(0, 0, 1
 pub enum ExceptionLevel {
     EL2
 }
+
 pub fn esr(el: ExceptionLevel) -> u64 {
     let esr_el2;
 
@@ -328,4 +329,113 @@ pub fn esr(el: ExceptionLevel) -> u64 {
     }
 
     esr_el2
+}
+
+const IFSC_MASK: u64 = ((1 << 6) - 1);
+
+pub fn print_inst_abort_current(esr_el2: u64) -> () {
+    uart_write("Instruction Abort Current ELx\n");
+
+
+    let ifsc = esr_el2 & IFSC_MASK;
+
+    let mut _myifsc = ifsc;
+
+    let string = 
+        match ifsc {
+            0b000000 => "Address Size Fault, level 0 or TTBR",
+            0b000001 => "Address Size Fault, level 1",
+            0b000010 => "Address Size Fault, level 2",
+            0b000011 => "Address Size Fault, level 3",
+            0b000100 => "Translation fault, level 0",
+            0b000101 => "Translation fault, level 1",
+            0b000110 => "Translation fault, level 2",
+            0b000111 => "Translation fault, level 3",
+            0b001001 => "Access flag fault, level 1",
+            0b001010 => "Access flag fault, level 2",
+            0b001011 => "Access flag fault, level 3",
+            0b001101 => "Permission fault, level 1",
+            0b001110 => "Permission fault, level 2",
+            0b001111 => "Permission fault, level 3",
+            0b010000 => "Synchronous External abort, not on translation table walk",
+            0b010100 => "Synchronous External abort, on translation table walk, level 0",
+            0b010101 => "Synchronous External abort, on translation table walk, level 1",
+            0b010110 => "Synchronous External abort, on translation table walk, level 2",
+            0b010111 => "Synchronous External abort, on translation table walk, level 3",
+            0b011000 => "Synchronous parity or ECC error on memory access, not on translation table walk",
+            0b011100 => "Synchronous parity or ECC error on memory access on translation table walk, level 0",
+            0b011101 => "Synchronous parity or ECC error on memory access on translation table walk, level 1",
+            0b011110 => "Synchronous parity or ECC error on memory access on translation table walk, level 2",
+            0b011111 => "Synchronous parity or ECC error on memory access on translation table walk, level 3",
+            0b110000 => "TLB conflict abort",
+            _ => "Other",
+        };
+
+    uart_write("Instruction Fault Status Code: ");
+    uart_write(string);
+    uart_write("\n");
+}
+
+pub fn print_exception_syndrome() -> () {
+    let esr_el2 = esr(ExceptionLevel::EL2);
+    let ec = esr_elx_ec(esr_el2);
+
+    match ec {
+        ESR_ELx_EC_WFx => uart_write("ESR_ELx_EC_WFx"),
+        ESR_ELx_EC_CP15_32 => uart_write("ESR_ELx_EC_CP15_32"),
+        ESR_ELx_EC_CP15_64 => uart_write("ESR_ELx_EC_CP15_64"),
+        ESR_ELx_EC_CP14_MR => uart_write("ESR_ELx_EC_CP14_MR"),
+        ESR_ELx_EC_CP14_LS => uart_write("ESR_ELx_EC_CP14_LS"),
+        ESR_ELx_EC_FP_ASIMD => uart_write("ESR_ELx_EC_FP_ASIMD"),
+        ESR_ELx_EC_CP10_ID => uart_write("ESR_ELx_EC_CP10_ID"),
+        ESR_ELx_EC_PAC => uart_write("ESR_ELx_EC_PAC"),
+        ESR_ELx_EC_CP14_64 => uart_write("ESR_ELx_EC_CP14_64"),
+        ESR_ELx_EC_ILL => uart_write("ESR_ELx_EC_ILL"),
+        ESR_ELx_EC_SVC32 => uart_write("ESR_ELx_EC_SVC32"),
+        ESR_ELx_EC_HVC32 => uart_write("ESR_ELx_EC_HVC32"),
+        ESR_ELx_EC_SMC32 => uart_write("ESR_ELx_EC_SMC32"),
+        ESR_ELx_EC_SVC64 => uart_write("ESR_ELx_EC_SVC64"),
+        ESR_ELx_EC_HVC64 => uart_write("ESR_ELx_EC_HVC64"),
+        ESR_ELx_EC_SMC64 => uart_write("ESR_ELx_EC_SMC64"),
+        ESR_ELx_EC_SYS64 => uart_write("ESR_ELx_EC_SYS64"),
+        ESR_ELx_EC_SVE => uart_write("ESR_ELx_EC_SVE"),
+        ESR_ELx_EC_IMP_DEF => uart_write("ESR_ELx_EC_IMP_DEF"),
+        ESR_ELx_EC_IABT_LOW => uart_write("Instruction Abort Lower ELx"),
+        ESR_ELx_EC_IABT_CUR => print_inst_abort_current(esr_el2),
+        ESR_ELx_EC_PC_ALIGN => uart_write("ESR_ELx_EC_PC_ALIGN"),
+        ESR_ELx_EC_DABT_LOW => uart_write("ESR_ELx_EC_DABT_LOW"),
+        ESR_ELx_EC_DABT_CUR => uart_write("ESR_ELx_EC_DABT_CUR"),
+        ESR_ELx_EC_SP_ALIGN => uart_write("ESR_ELx_EC_SP_ALIGN"),
+        ESR_ELx_EC_FP_EXC32 => uart_write("ESR_ELx_EC_FP_EXC32"),
+        ESR_ELx_EC_FP_EXC64 => uart_write("ESR_ELx_EC_FP_EXC64"),
+        ESR_ELx_EC_SERROR => uart_write("ESR_ELx_EC_SERROR"),
+        ESR_ELx_EC_BREAKPT_LOW => uart_write("ESR_ELx_EC_BREAKPT_LOW"),
+        ESR_ELx_EC_BREAKPT_CUR => uart_write("ESR_ELx_EC_BREAKPT_CUR"),
+        ESR_ELx_EC_SOFTSTP_LOW => uart_write("ESR_ELx_EC_SOFTSTP_LOW"),
+        ESR_ELx_EC_SOFTSTP_CUR => uart_write("ESR_ELx_EC_SOFTSTP_CUR"),
+        ESR_ELx_EC_WATCHPT_LOW => uart_write("ESR_ELx_EC_WATCHPT_LOW"),
+        ESR_ELx_EC_WATCHPT_CUR => uart_write("ESR_ELx_EC_WATCHPT_CUR"),
+        ESR_ELx_EC_BKPT32 => uart_write("ESR_ELx_EC_BKPT32"),
+        ESR_ELx_EC_VECTOR32 => uart_write("ESR_ELx_EC_VECTOR32"),
+        ESR_ELx_EC_BRK64 => uart_write("ESR_ELx_EC_BRK64"),
+        ESR_ELx_EC_MAX => uart_write("ESR_ELx_EC_MAX"),
+        /*
+        ESR_ELx_SYS64_ISS_DIR_READ => uart_write("ESR_ELx_SYS64_ISS_DIR_READ"),
+        ESR_ELx_SYS64_ISS_DIR_WRITE => uart_write("ESR_ELx_SYS64_ISS_DIR_WRITE"),
+        ESR_ELx_SYS64_ISS_CRM_DC_CIVAC => uart_write("ESR_ELx_SYS64_ISS_CRM_DC_CIVAC"),
+        ESR_ELx_SYS64_ISS_CRM_DC_CVADP => uart_write("ESR_ELx_SYS64_ISS_CRM_DC_CVADP"),
+        ESR_ELx_SYS64_ISS_CRM_DC_CVAP => uart_write("ESR_ELx_SYS64_ISS_CRM_DC_CVAP"),
+        ESR_ELx_SYS64_ISS_CRM_DC_CVAU => uart_write("ESR_ELx_SYS64_ISS_CRM_DC_CVAU"),
+        ESR_ELx_SYS64_ISS_CRM_DC_CVAC => uart_write("ESR_ELx_SYS64_ISS_CRM_DC_CVAC"),
+        ESR_ELx_SYS64_ISS_CRM_IC_IVAU => uart_write("ESR_ELx_SYS64_ISS_CRM_IC_IVAU"),
+        ESR_ELx_SYS64_ISS_EL0_CACHE_OP_VAL => uart_write("ESR_ELx_SYS64_ISS_EL0_CACHE_OP_VAL"),
+        ESR_ELx_SYS64_ISS_SYS_MRS_OP_VAL => uart_write("ESR_ELx_SYS64_ISS_SYS_MRS_OP_VAL"),
+        ESR_ELx_SYS64_ISS_SYS_CTR => uart_write("ESR_ELx_SYS64_ISS_SYS_CTR"),
+        ESR_ELx_CP15_32_ISS_DIR_READ => uart_write("ESR_ELx_CP15_32_ISS_DIR_READ"),
+        ESR_ELx_CP15_32_ISS_DIR_WRITE => uart_write("ESR_ELx_CP15_32_ISS_DIR_WRITE"),
+        ESR_ELx_CP15_64_ISS_DIR_READ => uart_write("ESR_ELx_CP15_64_ISS_DIR_READ"),
+        ESR_ELx_CP15_64_ISS_DIR_WRITE => uart_write("ESR_ELx_CP15_64_ISS_DIR_WRITE"),
+        */
+        _ => uart_write("UNKNOWN"),
+    }
 }

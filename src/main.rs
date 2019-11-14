@@ -13,6 +13,7 @@ mod aarch64;
 mod common;
 mod frame_alloc;
 mod esr;
+mod uart;
 
 pub use start::start_hypervisor;
 

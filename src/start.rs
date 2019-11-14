@@ -11,33 +11,30 @@ use crate::lpae::{
     pagetable_third_index
 };
 
-use crate::frame_alloc::FrameAllocator;
-use crate::esr::{esr, ExceptionLevel, esr_elx_ec};
+use crate::esr::print_exception_syndrome;
 use crate::{msr, mrs};
 use crate::common::bit;
 use crate::memory_attrs;
+use crate::uart::{uart_write, uart_init};
 use crate::aarch64::{current_el, Shareable, data_barrier, isb};
 
 const UART_BASE: u64 = 0x09000000;
 const UART_SIZE: u64 = 0x00001000;
 
-struct PageTableTree<'a> {
+struct PageTableTree {
     zeroeth: PageTable,
     first: PageTable,
     second: PageTable,
     third: PageTable,
-
-    allocator: &'a mut FrameAllocator,
 }
 
-impl<'a> PageTableTree<'a> {
-    fn new(allocator: &mut FrameAllocator) -> PageTableTree {
+impl PageTableTree {
+    fn new() -> PageTableTree {
         PageTableTree {
             zeroeth: PageTable::new(),
             first: PageTable::new(),
             second: PageTable::new(),
             third: PageTable::new(),
-            allocator: allocator,
         }
     }
 
@@ -160,6 +157,8 @@ const HCR_VM: u64 = bit(0);
 const HCR_IMO: u64 = bit(3);
 const HCR_FMO: u64 = bit(4);
 const HCR_AMO: u64 = bit(5);
+const HCR_RW: u64 = bit(31);
+const HCR_TGE: u64 = bit(27);
 
 fn enable_virt() -> () {
     let mut hcr_el2: u64;
@@ -178,6 +177,15 @@ pub fn trap_lower_el_into_el2() -> () {
     let mut hcr_el2: u64;
     mrs!(hcr_el2, "HCR_EL2");
     hcr_el2 |= HCR_AMO | HCR_FMO | HCR_IMO;
+
+    /*
+    /* Trap General Exceptions into EL2 (instead of EL1) */
+    hcr_el2 |= HCR_TGE;
+    */
+
+    /* Lower exception levels are Aarch64 */
+    hcr_el2 |=  HCR_RW;
+
     msr!("HCR_EL2", hcr_el2);
 }
 
@@ -188,6 +196,11 @@ fn flush_hypervisor_tlb() -> () {
 
 fn switch_ttbr(pagetable_address: u64) -> () {
     msr!("TTBR0_EL2", pagetable_address);
+    isb();
+}
+
+fn switch_vttbr(pagetable_address: u64) -> () {
+    msr!("VTTBR_EL2", pagetable_address);
     isb();
 }
 
@@ -223,6 +236,26 @@ fn init_tcr() -> () {
     // 48-bit virtual address space
     tcr_el2 |= 64 - 48;
     msr!("tcr_el2", tcr_el2);
+}
+
+const VTCR_EL2_SL0: u64 = bit(7);
+
+fn init_vtcr() -> () {
+    let mut vctr_el2: u64 = 0;
+
+    vctr_el2 |= TCR_EL2_RES1;
+    vctr_el2 |= TCR_EL2_INNER_WRITE_BACK_WRITE_ALLOC;
+    vctr_el2 |= TCR_EL2_OUTER_WRITE_BACK_WRITE_ALLOC;
+    vctr_el2 |= TCR_EL2_INNER_SHAREABLE;
+    vctr_el2 |= VTCR_EL2_SL0;
+
+    // TCR_EL2.PS[18:16]
+    let pa_range = get_phys_addr_range();
+    vctr_el2 |= (pa_range & 0x3) << 16;
+
+    // 48-bit virtual address space
+    vctr_el2 |= 64 - 48;
+    msr!("vtcr_el2", vctr_el2);
 }
 
 fn enable_mmu() -> () { 
@@ -269,22 +302,11 @@ fn init_sctlr() -> () {
     isb();
 }
 
-fn uart_write(uart_virt: u64) -> () {
-    unsafe {
-        let p = uart_virt as *mut u64;
-        *p = 88;
-        *p = 89;
-        *p = 90;
-    }
-}
-
 #[no_mangle]
 pub extern fn irq_handler() -> ! {
-    let esr_el2 = esr(ExceptionLevel::EL2);
-    let _ec = esr_elx_ec(esr_el2);
+    print_exception_syndrome();
     loop {}
 }
-
 
 fn init_interrupts(irq_vector_addr: u64) -> () {
     let vbar_el2 = irq_vector_addr;
@@ -302,8 +324,26 @@ fn init_interrupts(irq_vector_addr: u64) -> () {
 
 }
 
+#[allow(non_upper_case_globals)]
 pub fn load_guest() -> () {
     let guest_address: u64 = 0x40400000;
+    //const EL0t: u64 = 0b0000;
+    const EL1h: u64 = 0b0101;
+
+    let mut stage2_table = PageTableTree::new();
+    stage2_table.first_map(guest_address, guest_address);
+
+    /* Initialize VTCR_EL2 */
+    init_vtcr();
+
+    /* Initialize VTTBR_EL2 */
+    let vttbr_el2 = &stage2_table as *const _ as u64;
+    switch_vttbr(vttbr_el2);
+    
+    unsafe { asm!("msr SCTLR_EL1, XZR"); }
+    
+     /* Mask interrupts */ 
+    unsafe { asm!("msr daifclr, #0xf"); }
 
     /*
      * To return from an exception, use the ERET instruction. This instruction restores
@@ -313,16 +353,8 @@ pub fn load_guest() -> () {
 
     msr!("ELR_EL2", guest_address);
 
-    /* TODO: use gdb to read the SPSR_EL1 here */
-    /*
-    let ptr = _guest_address as *const ();
-    unsafe {
-        let code: extern "C" fn() = core::mem::transmute(ptr);
-        (code)();
-    }
-    */
-
-    let spsr_el2: u64 = bit(0) | bit(2);
+    let spsr_el2: u64 = EL1h;
+    //let spsr_el2: u64 = EL0t;
     msr!("SPSR_EL2", spsr_el2);
 
     unsafe {
@@ -348,14 +380,11 @@ pub extern fn start_hypervisor(start: u64,
     init_sctlr();
     unsafe { asm!("msr spsel, #1") }
 
-    let mut allocator = FrameAllocator::new(end);
-    let mut boot_table_tree = PageTableTree::new(&mut allocator);
+    let mut boot_table_tree = PageTableTree::new();
     setup_boot_pagetables(&mut boot_table_tree, start, end, offset);
-
 
     let uart_virt = align(end + PAGE_SIZE as u64, Alignment::Kb4);
     boot_table_tree.first_map(uart_virt, UART_BASE);
-
 
     /* Flush the tlb just in case there is stale state */
     flush_hypervisor_tlb();
@@ -364,14 +393,17 @@ pub extern fn start_hypervisor(start: u64,
     switch_ttbr(ttbr0_el2);
     enable_mmu();
     init_interrupts(irq_vector_addr);
-    uart_write(uart_virt);
 
+    uart_init(uart_virt);
+    uart_write("UART mapped\n");
+
+    /*
     // cause interrupt
     unsafe {
         let p = 0 as *const i32;
         let mut _k = *p;
     }
-
+    */
 
     enable_virt();
     load_guest();
