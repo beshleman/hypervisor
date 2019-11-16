@@ -38,45 +38,7 @@ impl PageTableTree {
         }
     }
 
-    fn new_table(&self) -> PageTable {
-        PageTable::new()
-    }
-
     fn map(&mut self, vaddr: u64, paddr: u64) -> () {
-        let first;
-        let index0 = pagetable_zeroeth_index(vaddr);
-        if self.zeroeth.entries[index0].is_valid() {
-            first = unsafe { self.zeroeth.entries[index0].as_pagetable() };
-        } else {
-            loop {}
-        }
-        
-        let second;
-        let index1 = pagetable_first_index(vaddr);
-        if first.entries[index1].is_valid() {
-            second = unsafe { first.entries[index1].as_pagetable() };
-        } else {
-            loop {}
-        }
-
-
-        let third: &mut PageTable;
-        let index2 = pagetable_second_index(vaddr);
-        if second.entries[index2].is_valid() {
-            third = unsafe { second.entries[index2].as_pagetable() };
-        } else {
-            loop {}
-        }
-
-        let index3 = pagetable_third_index(vaddr);
-        if third.entries[index3].is_valid() {
-            loop {}
-        }
-
-        third.entries[index3] = PageTableEntry::from_block(paddr);
-    }
-
-    fn first_map(&mut self, vaddr: u64, paddr: u64) -> () {
         let index0 = pagetable_zeroeth_index(vaddr);
         let index1 = pagetable_first_index(vaddr);
         let index2 = pagetable_second_index(vaddr);
@@ -109,7 +71,7 @@ fn map_address_range(boot_table_tree: &mut PageTableTree,
     let mut paddr = align(phys_start, Alignment::Kb4);
 
     for vaddr in (start..end).step_by(PAGE_SIZE) {
-        boot_table_tree.first_map(vaddr, paddr);
+        boot_table_tree.map(vaddr, paddr);
         paddr += PAGE_SIZE as u64;
     }
 }
@@ -200,7 +162,7 @@ fn switch_ttbr(pagetable_address: u64) -> () {
 }
 
 fn switch_vttbr(pagetable_address: u64) -> () {
-    msr!("VTTBR_EL2", pagetable_address);
+    msr!("vttbr_el2", pagetable_address);
     isb();
 }
 
@@ -218,7 +180,7 @@ fn disable_el2_host() -> () {
     let mut hcr_el2: u64;
     mrs!(hcr_el2, "HCR_EL2");
     hcr_el2 &= !(1 << HCR_EL2_E2H_SHIFT);
-    msr!("HCR_EL2", hcr_el2);
+    msr!("hcr_el2", hcr_el2);
 }
 
 fn init_tcr() -> () {
@@ -261,7 +223,7 @@ fn init_vtcr() -> () {
 fn enable_mmu() -> () { 
     let mut sctlr_el2: u64;
 
-    mrs!(sctlr_el2, "SCTLR_EL2");
+    mrs!(sctlr_el2, "sctlr_el2");
 
     /* Enable the MMU */
     sctlr_el2 |= bit(0);
@@ -269,7 +231,7 @@ fn enable_mmu() -> () {
     /* Sync all pagetable modifications */
     data_barrier(Shareable::FullSystem);
 
-    msr!("SCTLR_EL2", sctlr_el2);
+    msr!("sctlr_el2", sctlr_el2);
     isb();
 }
 
@@ -308,14 +270,30 @@ pub extern fn irq_handler() -> ! {
     loop {}
 }
 
-fn init_interrupts(irq_vector_addr: u64) -> () {
+fn init_el2_interrupts(irq_vector_addr: u64) -> () {
     let vbar_el2 = irq_vector_addr;
 
     // If the implementation does not support ARMv8.2-LVA, then
     // bits VBAR_EL2[63:48] must be zero.
     match vbar_el2 & !((1<<48) - 1) {
         0 => {
-            msr!("VBAR_EL2", vbar_el2);
+            msr!("vbar_el2", vbar_el2);
+            isb();
+            trap_lower_el_into_el2();
+        },
+        _ => loop {}
+    }
+
+}
+
+fn init_el1_interrupts(irq_vector_addr: u64) -> () {
+    let vbar_el2 = irq_vector_addr;
+
+    // If the implementation does not support ARMv8.2-LVA, then
+    // bits VBAR_EL2[63:48] must be zero.
+    match vbar_el2 & !((1<<48) - 1) {
+        0 => {
+            msr!("vbar_el2", vbar_el2);
             isb();
             trap_lower_el_into_el2();
         },
@@ -331,7 +309,7 @@ pub fn load_guest() -> () {
     const EL1h: u64 = 0b0101;
 
     let mut stage2_table = PageTableTree::new();
-    stage2_table.first_map(guest_address, guest_address);
+    stage2_table.map(guest_address, guest_address);
 
     /* Initialize VTCR_EL2 */
     init_vtcr();
@@ -357,8 +335,19 @@ pub fn load_guest() -> () {
     //let spsr_el2: u64 = EL0t;
     msr!("SPSR_EL2", spsr_el2);
 
+    //data_abort();
+
     unsafe {
         asm!("eret");
+    }
+}
+
+#[allow(dead_code)]
+fn data_abort() -> () {
+    // cause interrupt
+    unsafe {
+        let p = 0 as *const i32;
+        let mut _k = *p;
     }
 }
 
@@ -384,7 +373,9 @@ pub extern fn start_hypervisor(start: u64,
     setup_boot_pagetables(&mut boot_table_tree, start, end, offset);
 
     let uart_virt = align(end + PAGE_SIZE as u64, Alignment::Kb4);
-    boot_table_tree.first_map(uart_virt, UART_BASE);
+    boot_table_tree.map(uart_virt, UART_BASE);
+    //let guest_address: u64 = 0x40400000;
+    //boot_table_tree.map(guest_address, guest_address);
 
     /* Flush the tlb just in case there is stale state */
     flush_hypervisor_tlb();
@@ -392,18 +383,12 @@ pub extern fn start_hypervisor(start: u64,
     let ttbr0_el2 = &boot_table_tree.zeroeth as *const _ as u64;
     switch_ttbr(ttbr0_el2);
     enable_mmu();
-    init_interrupts(irq_vector_addr);
+    init_el2_interrupts(irq_vector_addr);
+    init_el1_interrupts(irq_vector_addr);
 
     uart_init(uart_virt);
     uart_write("UART mapped\n");
 
-    /*
-    // cause interrupt
-    unsafe {
-        let p = 0 as *const i32;
-        let mut _k = *p;
-    }
-    */
 
     enable_virt();
     load_guest();

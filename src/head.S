@@ -120,32 +120,106 @@ ret_from_excp:
 
         .align  11
 
+.global sync_el2h
+.global irq_el2h
+.global fiq_el2h
+.global error_el2h
+.global sync_lower_64
+.global irq_lower_64
+.global fiq_lower_64
+.global error_lower_64
+
 hyp_traps_vector:
-        ventry  catchall        /* Synchronous EL2t */
-        ventry  catchall        /* IRQ EL2t */
-        ventry  catchall        /* FIQ EL2t */
-        ventry  catchall        /* Error EL2t */
+        ventry  invalid_sync_el2t        /* Synchronous EL2t */
+        ventry  invalid_irq_el2t        /* IRQ EL2t */
+        ventry  invalid_fiq_el2t        /* FIQ EL2t */
+        ventry  invalid_error_el2t        /* Error EL2t */
 
-        ventry  catchall        /* Synchronous EL2h */
-        ventry  catchall        /* IRQ EL2h */
-        ventry  catchall        /* FIQ EL2h */
-        ventry  catchall        /* Error EL2h */
+        ventry  sync_el2h        /* Synchronous EL2h */
+        ventry  irq_el2h        /* IRQ EL2h */
+        ventry  fiq_el2h        /* FIQ EL2h */
+        ventry  error_el2h        /* Error EL2h */
 
-        ventry  catchall        /* Synchronous 64-bit EL0/EL1 */
-        ventry  catchall        /* IRQ 64-bit EL0/EL1 */
-        ventry  catchall        /* FIQ 64-bit EL0/EL1 */
-        ventry  catchall        /* Error 64-bit EL0/EL1 */
+        ventry  sync_lower_64        /* Synchronous 64-bit EL0/EL1 */
+        ventry  irq_lower_64        /* IRQ 64-bit EL0/EL1 */
+        ventry  fiq_lower_64        /* FIQ 64-bit EL0/EL1 */
+        ventry  error_lower_64        /* Error 64-bit EL0/EL1 */
 
-        ventry  catchall        /* Synchronous 32-bit EL0/EL1 */
-        ventry  catchall        /* IRQ 32-bit EL0/EL1 */
-        ventry  catchall    	/* FIQ 32-bit EL0/EL1 */
-        ventry  catchall        /* Error 32-bit EL0/EL1 */
+        ventry  invalid_32        /* Synchronous 32-bit EL0/EL1 */
+        ventry  invalid_32        /* IRQ 32-bit EL0/EL1 */
+        ventry  invalid_32    	/* FIQ 32-bit EL0/EL1 */
+        ventry  invalid_32        /* Error 32-bit EL0/EL1 */
 
-/*
- * For now, we just use one handler.
- * TODO: differentiate IRQs
- */
-catchall:
+
+invalid_sync_el2t:
+	bl invalid_sync_el2t
+
+invalid_irq_el2t:
+	bl invalid_irq_el2t
+
+invalid_fiq_el2t:
+	bl invalid_fiq_el2t
+
+invalid_error_el2t:
+	bl invalid_error_el2t
+
+sync_el2h:
+        entry
+        msr     daifclr, #4
+        mov     x0, sp
+        bl      irq_handler
+        exit
+
+irq_el2h:
+        entry
+        msr     daifclr, #4
+        mov     x0, sp
+        bl      irq_handler
+        exit
+
+fiq_el2h:
+        entry
+        msr     daifclr, #4
+        mov     x0, sp
+        bl      irq_handler
+        exit
+
+error_el2h:
+        entry
+        msr     daifclr, #4
+        mov     x0, sp
+        bl      irq_handler
+        exit
+
+sync_lower_64:
+        entry
+        msr     daifclr, #4
+        mov     x0, sp
+        bl      irq_handler
+        exit
+
+irq_lower_64:
+        entry
+        msr     daifclr, #4
+        mov     x0, sp
+        bl      irq_handler
+        exit
+
+fiq_lower_64:
+        entry
+        msr     daifclr, #4
+        mov     x0, sp
+        bl      irq_handler
+        exit
+
+error_lower_64:
+        entry
+        msr     daifclr, #4
+        mov     x0, sp
+        bl      irq_handler
+        exit
+
+invalid_32:
         entry
         msr     daifclr, #4
         mov     x0, sp
@@ -207,7 +281,7 @@ _start:
 
 	/* Pass start, end, and phys offset to Rust */
 	/* x0 = start, x1 = end, x2 = offset */
-        adr 	x0, _start
+        adr 	x0, vectors
         adr 	x1, _end
 	mov    x2, x10
         adr 	x3, hyp_traps_vector
