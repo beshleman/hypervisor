@@ -333,7 +333,7 @@ pub fn esr(el: ExceptionLevel) -> u64 {
 
 const IFSC_MASK: u64 = ((1 << 6) - 1);
 
-pub fn print_inst_abort_current(esr_el2: u64) -> () {
+pub fn print_instruction_abort(esr_el2: u64) -> () {
     uart_write("Instruction Abort Current ELx\n");
 
 
@@ -400,8 +400,8 @@ pub fn print_exception_syndrome() -> () {
         ESR_ELx_EC_SYS64 => uart_write("ESR_ELx_EC_SYS64"),
         ESR_ELx_EC_SVE => uart_write("ESR_ELx_EC_SVE"),
         ESR_ELx_EC_IMP_DEF => uart_write("ESR_ELx_EC_IMP_DEF"),
-        ESR_ELx_EC_IABT_LOW => uart_write("Instruction Abort Lower ELx"),
-        ESR_ELx_EC_IABT_CUR => print_inst_abort_current(esr_el2),
+        ESR_ELx_EC_IABT_LOW => print_instruction_abort(esr_el2),
+        ESR_ELx_EC_IABT_CUR => print_instruction_abort(esr_el2),
         ESR_ELx_EC_PC_ALIGN => uart_write("ESR_ELx_EC_PC_ALIGN"),
         ESR_ELx_EC_DABT_LOW => uart_write("ESR_ELx_EC_DABT_LOW"),
         ESR_ELx_EC_DABT_CUR => uart_write("ESR_ELx_EC_DABT_CUR"),

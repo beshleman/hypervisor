@@ -264,8 +264,54 @@ fn init_sctlr() -> () {
     isb();
 }
 
+fn print_spsr_el2() -> () {
+
+    let mut spsr: u64;
+
+    mrs!(spsr, "SPSR_EL2");
+    let m: u64 = spsr & 0xf;
+
+    uart_write("EL from SPSR.M[4:0] : ");
+    uart_write("0b");
+
+    for _ in 0..4 {
+        if ((spsr & (1<<3)) >> 3) == 1 {
+            uart_write("1");
+        } else {
+            uart_write("0");
+        }
+
+        spsr <<= 1;
+    }
+    uart_write("\n");
+    uart_write("EL from SPSR.M[4:0] : ");
+    match m {
+        0b0000 => uart_write("EL0t"),
+        0b0100 => uart_write("EL1t"),
+        0b0101 => uart_write("EL1h"),
+        0b1000 => uart_write("EL2t"),
+        0b1001 => uart_write("EL2h"),
+            _ => uart_write("Unknown"),
+    }
+    uart_write("\n");
+}
+
+fn print_current_el() -> () {
+    uart_write("Current EL: ");
+    match current_el() {
+        0 => uart_write("EL0"),
+        1 => uart_write("EL1"),
+        2 => uart_write("EL2"),
+        3 => uart_write("EL3"),
+        _ => loop{},
+    }
+    uart_write("\n");
+}
+
 #[no_mangle]
 pub extern fn irq_handler() -> ! {
+    print_current_el();
+    print_spsr_el2();
     print_exception_syndrome();
     loop {}
 }
@@ -305,8 +351,6 @@ fn init_el1_interrupts(irq_vector_addr: u64) -> () {
 #[allow(non_upper_case_globals)]
 pub fn load_guest() -> () {
     let guest_address: u64 = 0x40400000;
-    //const EL0t: u64 = 0b0000;
-    const EL1h: u64 = 0b0101;
 
     let mut stage2_table = PageTableTree::new();
     stage2_table.map(guest_address, guest_address);
@@ -331,9 +375,24 @@ pub fn load_guest() -> () {
 
     msr!("ELR_EL2", guest_address);
 
-    let spsr_el2: u64 = EL1h;
+    //const EL0t: u64 = 0b0000;
+    //const EL1h: u64 = 0b0101;
+    //let spsr_el2: u64 = EL1h;
     //let spsr_el2: u64 = EL0t;
-    msr!("SPSR_EL2", spsr_el2);
+    // 0b0000 => EL0 (sync_lower_64)
+    // 0b0001 => EL2h
+    // 0b0010 => EL2h
+    // 0b0011 => EL2h
+    // 0b0100 => EL0 (sync_lower_64)
+    // 0b0101 => EL0
+    // 0b0110 => EL2h
+    // 0b0111 => EL2h
+    // 0b1000 => EL2t
+    // 0b1001 => EL2h
+    // 0b1010 => EL2h
+    // 0b1101 => EL2h
+    // 0b1111 => EL2h
+    msr!("SPSR_EL2", 0b1011);
 
     //data_abort();
 

@@ -130,10 +130,10 @@ ret_from_excp:
 .global error_lower_64
 
 hyp_traps_vector:
-        ventry  invalid_sync_el2t        /* Synchronous EL2t */
-        ventry  invalid_irq_el2t        /* IRQ EL2t */
-        ventry  invalid_fiq_el2t        /* FIQ EL2t */
-        ventry  invalid_error_el2t        /* Error EL2t */
+        ventry  sync_el2t        /* Synchronous EL2t */
+        ventry  irq_el2t        /* IRQ EL2t */
+        ventry  fiq_el2t        /* FIQ EL2t */
+        ventry  error_el2t        /* Error EL2t */
 
         ventry  sync_el2h        /* Synchronous EL2h */
         ventry  irq_el2h        /* IRQ EL2h */
@@ -151,17 +151,33 @@ hyp_traps_vector:
         ventry  invalid_32        /* Error 32-bit EL0/EL1 */
 
 
-invalid_sync_el2t:
-	bl invalid_sync_el2t
+sync_el2t:
+        entry
+        msr     daifclr, #4
+        mov     x0, sp
+        bl      irq_handler
+        exit
 
-invalid_irq_el2t:
-	bl invalid_irq_el2t
+irq_el2t:
+        entry
+        msr     daifclr, #4
+        mov     x0, sp
+        bl      irq_handler
+        exit
 
-invalid_fiq_el2t:
-	bl invalid_fiq_el2t
+fiq_el2t:
+        entry
+        msr     daifclr, #4
+        mov     x0, sp
+        bl      irq_handler
+        exit
 
-invalid_error_el2t:
-	bl invalid_error_el2t
+error_el2t:
+        entry
+        msr     daifclr, #4
+        mov     x0, sp
+        bl      irq_handler
+        exit
 
 sync_el2h:
         entry
