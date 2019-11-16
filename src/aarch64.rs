@@ -17,6 +17,13 @@ macro_rules! mrs {
     }
 }
 
+pub enum ExceptionLevel {
+    EL0 = 0,
+    EL1 = 1,
+    EL2 = 2,
+    EL3 = 3
+}
+
 pub fn current_el() -> u64 {
     let el: u64;
 

@@ -6,6 +6,7 @@
 
 use crate::mrs;
 use crate::uart::uart_write;
+use crate::aarch64::ExceptionLevel;
 
 const ESR_ELx_EC_UNKNOWN: u64 = (0x00);
 const ESR_ELx_EC_WFx: u64 =  (0x01);
@@ -315,20 +316,22 @@ const ESR_ELx_CP15_32_ISS_SYS_CNTFRQ: u64 = (ESR_ELx_CP15_32_ISS_SYS_VAL(0, 0, 1
       ESR_ELx_CP15_32_ISS_DIR_READ)
 */
 
-pub enum ExceptionLevel {
-    EL2
-}
-
 pub fn esr(el: ExceptionLevel) -> u64 {
-    let esr_el2;
+    let esr;
 
     match el {
         ExceptionLevel::EL2 => {
-            mrs!(esr_el2, "ESR_EL2");
-        }
+            mrs!(esr, "ESR_EL2");
+        },
+
+        ExceptionLevel::EL1 => {
+            mrs!(esr, "ESR_EL1");
+        },
+
+        _ => loop {}
     }
 
-    esr_el2
+    esr
 }
 
 const IFSC_MASK: u64 = ((1 << 6) - 1);
@@ -376,9 +379,17 @@ pub fn print_instruction_abort(esr_el2: u64) -> () {
     uart_write("\n");
 }
 
-pub fn print_exception_syndrome() -> () {
-    let esr_el2 = esr(ExceptionLevel::EL2);
-    let ec = esr_elx_ec(esr_el2);
+pub fn print_exception_syndrome(el: ExceptionLevel) -> () {
+    match el {
+        ExceptionLevel::EL1 => uart_write("ESR_EL1: "),
+        ExceptionLevel::EL2 => uart_write("ESR_EL2: "),
+        _ =>  {
+            uart_write("ESR_EL UNSUPPORTED:\n");
+            return;
+        },
+    }
+    let esr = esr(el);
+    let ec = esr_elx_ec(esr);
 
     match ec {
         ESR_ELx_EC_WFx => uart_write("ESR_ELx_EC_WFx"),
@@ -400,8 +411,8 @@ pub fn print_exception_syndrome() -> () {
         ESR_ELx_EC_SYS64 => uart_write("ESR_ELx_EC_SYS64"),
         ESR_ELx_EC_SVE => uart_write("ESR_ELx_EC_SVE"),
         ESR_ELx_EC_IMP_DEF => uart_write("ESR_ELx_EC_IMP_DEF"),
-        ESR_ELx_EC_IABT_LOW => print_instruction_abort(esr_el2),
-        ESR_ELx_EC_IABT_CUR => print_instruction_abort(esr_el2),
+        ESR_ELx_EC_IABT_LOW => print_instruction_abort(esr),
+        ESR_ELx_EC_IABT_CUR => print_instruction_abort(esr),
         ESR_ELx_EC_PC_ALIGN => uart_write("ESR_ELx_EC_PC_ALIGN"),
         ESR_ELx_EC_DABT_LOW => uart_write("ESR_ELx_EC_DABT_LOW"),
         ESR_ELx_EC_DABT_CUR => uart_write("ESR_ELx_EC_DABT_CUR"),
@@ -436,6 +447,9 @@ pub fn print_exception_syndrome() -> () {
         ESR_ELx_CP15_64_ISS_DIR_READ => uart_write("ESR_ELx_CP15_64_ISS_DIR_READ"),
         ESR_ELx_CP15_64_ISS_DIR_WRITE => uart_write("ESR_ELx_CP15_64_ISS_DIR_WRITE"),
         */
-        _ => uart_write("UNKNOWN"),
+        _ => uart_write(" EC Unimplemented"),
     }
+
+
+    uart_write("\n");
 }

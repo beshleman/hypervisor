@@ -16,7 +16,7 @@ use crate::{msr, mrs};
 use crate::common::bit;
 use crate::memory_attrs;
 use crate::uart::{uart_write, uart_init};
-use crate::aarch64::{current_el, Shareable, data_barrier, isb};
+use crate::aarch64::{current_el, Shareable, data_barrier, isb, ExceptionLevel};
 
 const UART_BASE: u64 = 0x09000000;
 const UART_SIZE: u64 = 0x00001000;
@@ -312,7 +312,8 @@ fn print_current_el() -> () {
 pub extern fn irq_handler() -> ! {
     print_current_el();
     print_spsr_el2();
-    print_exception_syndrome();
+    print_exception_syndrome(ExceptionLevel::EL1);
+    print_exception_syndrome(ExceptionLevel::EL2);
     loop {}
 }
 
@@ -348,7 +349,26 @@ fn init_el1_interrupts(irq_vector_addr: u64) -> () {
 
 }
 
+
+/*
+ * 0b0000 EL0t.
+ * 0b0100 EL1t.
+ * 0b0101 EL1h.
+ * 0b1000 EL2t.
+ * 0b1001 EL2h.
+*/
+
 #[allow(non_upper_case_globals)]
+const SPSR_EL0t: u64 = 0b0000;
+#[allow(non_upper_case_globals)]
+const SPSR_EL1t: u64 = 0b0100;
+#[allow(non_upper_case_globals)]
+const SPSR_EL1h: u64 = 0b0101;
+#[allow(non_upper_case_globals)]
+const SPSR_EL2t: u64 = 0b1000;
+#[allow(non_upper_case_globals)]
+const SPSR_EL2h: u64 = 0b1001;
+
 pub fn load_guest() -> () {
     let guest_address: u64 = 0x40400000;
 
@@ -392,7 +412,7 @@ pub fn load_guest() -> () {
     // 0b1010 => EL2h
     // 0b1101 => EL2h
     // 0b1111 => EL2h
-    msr!("SPSR_EL2", 0b1011);
+    msr!("SPSR_EL2", SPSR_EL2t);
 
     //data_abort();
 

@@ -25,4 +25,4 @@ qemu-system-aarch64 -M virt -cpu cortex-a53 -nographic -smp 1 \
     -machine virt,gic_version=2					\
     -machine virtualization=true				\
     -device loader,file=../u-boot/u-boot.bin,addr=0x40400000	\
-    -monitor telnet::45454,server,nowait -s -S
+    -monitor telnet::45454,server,nowait # -s -S
