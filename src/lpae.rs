@@ -180,6 +180,7 @@ impl PageTable {
 // The AP_TABLE_BITS is RES0 for EL2 w/ no ARMv8.1-VHE
 const AP_TABLE_BITS: u64 = bitfield(62, 61);
 const TABLE_DESCRIPTOR_RES0: u64 = bitfield(51, 48) | AP_TABLE_BITS;
+const STAGE2_TABLE_DESCRIPTOR_RES0: u64 = bitfield(51, 48) | AP_TABLE_BITS | bitfield(63, 59);
 const TABLE_NON_SECURE: u64 = bit(63);
 
 // The maxium output address for the Cortex-A53
@@ -192,6 +193,10 @@ impl PageTableEntry {
 
         // Set next level table address
         descriptor |=  (address >> 12) << 12;
+
+        // Clear bits beyond 40th bit because Cortex-A53 only
+        // supports 40-bit OA
+        // descriptor &= !((1 << 40) - 1);
         
         // This is hypervisor memory, so set the Non-Secure Table bit to 1
         descriptor |= TABLE_NON_SECURE;
@@ -199,6 +204,86 @@ impl PageTableEntry {
         descriptor |= PTE_TABLE;
 
         assert_eq!(descriptor & TABLE_DESCRIPTOR_RES0, 0);
+        return PageTableEntry(descriptor);
+    }
+
+    /// Refer to D5.3 for Stage 2 translation table format descriptors
+    ///
+    /// NOTE: For now, we are using only Normal memory.  This is NOT
+    /// good for device memory.  This will need to be changed.
+    pub fn from_table_stage2(table: &PageTable) -> PageTableEntry {
+        let address: u64 = (table as *const PageTable) as u64;
+        let mut descriptor: u64 = 0;
+
+
+        // Set next level table address
+        descriptor |=  (address >> 12) << 12;
+
+        // Clear bits beyond 40th bit because Cortex-A53 only
+        // supports 40-bit OA
+        descriptor &= !((1 << 40) - 1);
+        
+        // This is hypervisor memory, so set the Non-Secure Table bit to 1
+        descriptor |= PTE_VALID;
+        descriptor |= PTE_TABLE;
+
+        assert_eq!(descriptor & STAGE2_TABLE_DESCRIPTOR_RES0, 0);
+        return PageTableEntry(descriptor);
+    }
+
+    pub fn from_block_stage2(address: u64) -> PageTableEntry {
+        assert!(address < CORTEX_A53_MAX_OA);
+        let mut descriptor = 0;
+
+        // Set Stage2 lower/uppder attributes
+        // MemAttr[5:2] ==  (Normal, Write-Back Cacheable)
+        descriptor |= 0b1111 << 2;
+    
+        // S2AP[7:6] ==  0b11 (read/write)
+        descriptor |= 0b11 << 6;
+
+        // SH[9:8] == Normal, 
+        descriptor |= 0b10 << 8;
+
+        // AF[10] = 1
+        descriptor |= 1 << 10;
+
+        // nT = 0, DBM = 0, Contiguous = 0, XN = 0, PBHA = 0
+
+        descriptor |= address & !((1 << 12) - 1);
+
+        /* For 4K mappings, PTE_TABLE is set too*/
+        descriptor |= PTE_TABLE;
+        descriptor |= PTE_VALID;
+
+        // Use memory attr 000, which is inner-shareable, WBWA
+        descriptor &= !(bit(4) | bit(3) | bit(2));
+
+        // This is a Non-Secure block, NS == 1
+        descriptor |= bit(5);
+
+        // Access Permissions == EL2 Read/Write, no EL1 or EL0 access
+        // (i.e., AP[1:0]  == 00)
+        descriptor &= !(bit(7) | bit(6));
+
+        // Hypervisor pages are inner-shareable, so as to be
+        // coherent across PEs, (i.e, SH == 11)
+        descriptor |= bit(9) | bit(8);
+
+        /*
+         * In ARMv8, software must manage the access flag.
+         * If it is NOT set to 1, then attempts at loadding this
+         * entry into the TLB will cause an Access flag fault.
+         */
+        descriptor |= bit(10);
+
+        /* Set to non-Global = 0, because we don't support ASIDs yet.
+         * TODO: Support ASIDs
+         */
+        descriptor &= !bit(11);
+
+        /* TODO: implement Upper attributes */
+
         return PageTableEntry(descriptor);
     }
 
@@ -216,8 +301,6 @@ impl PageTableEntry {
         /* For 4K mappings, PTE_TABLE is set too*/
         descriptor |= PTE_TABLE;
         descriptor |= PTE_VALID;
-
-        // 0xf7f == nG=1 AF=1 SH=11 AP=01 NS=1 ATTR=111 T=1 P=1 */
 
         // Use memory attr 000, which is inner-shareable, WBWA
         descriptor &= !(bit(4) | bit(3) | bit(2));

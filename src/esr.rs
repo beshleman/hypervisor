@@ -33,6 +33,7 @@ const ESR_ELx_EC_SMC64: u64 = (0x17); /* EL2 and above */
 const ESR_ELx_EC_SYS64: u64 = (0x18);
 const ESR_ELx_EC_SVE: u64 =  (0x19);
 /* Unallocated EC: 0x1A - 0x1E */
+const ESR_ELx_EC_ERET: u64 = 0b011010;
 const ESR_ELx_EC_IMP_DEF: u64 = (0x1f); /* EL3 only */
 const ESR_ELx_EC_IABT_LOW: u64 = (0x20);
 const ESR_ELx_EC_IABT_CUR: u64 = (0x21);
@@ -410,6 +411,7 @@ pub fn print_exception_syndrome(el: ExceptionLevel) -> () {
         ESR_ELx_EC_SMC64 => uart_write("ESR_ELx_EC_SMC64"),
         ESR_ELx_EC_SYS64 => uart_write("ESR_ELx_EC_SYS64"),
         ESR_ELx_EC_SVE => uart_write("ESR_ELx_EC_SVE"),
+        ESR_ELx_EC_ERET => uart_write("ESR_ELx_EC_ERET"),
         ESR_ELx_EC_IMP_DEF => uart_write("ESR_ELx_EC_IMP_DEF"),
         ESR_ELx_EC_IABT_LOW => print_instruction_abort(esr),
         ESR_ELx_EC_IABT_CUR => print_instruction_abort(esr),
@@ -430,6 +432,7 @@ pub fn print_exception_syndrome(el: ExceptionLevel) -> () {
         ESR_ELx_EC_VECTOR32 => uart_write("ESR_ELx_EC_VECTOR32"),
         ESR_ELx_EC_BRK64 => uart_write("ESR_ELx_EC_BRK64"),
         ESR_ELx_EC_MAX => uart_write("ESR_ELx_EC_MAX"),
+
         /*
         ESR_ELx_SYS64_ISS_DIR_READ => uart_write("ESR_ELx_SYS64_ISS_DIR_READ"),
         ESR_ELx_SYS64_ISS_DIR_WRITE => uart_write("ESR_ELx_SYS64_ISS_DIR_WRITE"),

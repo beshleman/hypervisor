@@ -22,7 +22,7 @@ pub fn init() -> () {
      * For the sake of simplicity, let's just use use AttrIndex 0 for
      * Normal Write-Back Write-Allocate memory:
      *
-     * Attr @ Index 0 of MAIR0 is Normal Write-bAck Write-Allocate memory
+     * Attr @ Index 0 of MAIR0 is Normal Write-back Write-Allocate memory
      */
 
     /* Write to MAIR_EL2 */

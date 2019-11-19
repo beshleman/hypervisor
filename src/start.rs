@@ -51,6 +51,36 @@ impl PageTableTree {
     }
 }
 
+struct PageTableTreeStage2 {
+    zeroeth: PageTable,
+    first: PageTable,
+    second: PageTable,
+    third: PageTable,
+}
+
+impl PageTableTreeStage2 {
+    fn new() -> PageTableTree {
+        PageTableTree {
+            zeroeth: PageTable::new(),
+            first: PageTable::new(),
+            second: PageTable::new(),
+            third: PageTable::new(),
+        }
+    }
+
+    fn map(&mut self, vaddr: u64, paddr: u64) -> () {
+        let index0 = pagetable_zeroeth_index(vaddr);
+        let index1 = pagetable_first_index(vaddr);
+        let index2 = pagetable_second_index(vaddr);
+        let index3 = pagetable_third_index(vaddr);
+
+        self.zeroeth.entries[index0] = PageTableEntry::from_table_stage2(&self.first);
+        self.first.entries[index1] = PageTableEntry::from_table_stage2(&self.second);
+        self.second.entries[index2] = PageTableEntry::from_table_stage2(&self.third);
+        self.third.entries[index3] = PageTableEntry::from_block_stage2(paddr);
+    }
+}
+
 const SCTLR_EL2_RES1: u64 = (bit(4) | bit(5) | bit(11) |
                              bit(16) | bit(18) | bit(22) |
                              bit(23) | bit(28) | bit(29));
@@ -200,15 +230,19 @@ fn init_tcr() -> () {
     msr!("tcr_el2", tcr_el2);
 }
 
-const VTCR_EL2_SL0: u64 = bit(7);
+const VTCR_EL2_SL0: u64 = 0x2 << 6;
+const VTCR_EL2_T0SZ: u64 = 24; // 64 bit width - 40 bit address size
+const VTCR_EL2_TG0: u64 = 0 << 14;
+const VTCR_EL2_SH0: u64 = 0x3 << 12; // Inner Shareable
+const VTCR_EL2_RES1: u64 = 1 << 31;
 
 fn init_vtcr() -> () {
     let mut vctr_el2: u64 = 0;
 
-    vctr_el2 |= TCR_EL2_RES1;
-    vctr_el2 |= TCR_EL2_INNER_WRITE_BACK_WRITE_ALLOC;
-    vctr_el2 |= TCR_EL2_OUTER_WRITE_BACK_WRITE_ALLOC;
-    vctr_el2 |= TCR_EL2_INNER_SHAREABLE;
+    vctr_el2 |= VTCR_EL2_RES1;
+    vctr_el2 |= VTCR_EL2_SH0;
+    vctr_el2 |= VTCR_EL2_TG0;
+    vctr_el2 |= VTCR_EL2_T0SZ;
     vctr_el2 |= VTCR_EL2_SL0;
 
     // TCR_EL2.PS[18:16]
@@ -308,10 +342,56 @@ fn print_current_el() -> () {
     uart_write("\n");
 }
 
+fn to_hex(val: u64) -> &'static str {
+    match val {
+        0x0 => "0",
+        0x1 => "1",
+        0x2 => "2",
+        0x3 => "3",
+        0x4 => "4",
+        0x5 => "5",
+        0x6 => "6",
+        0x7 => "7",
+        0x8 => "8",
+        0x9 => "9",
+        0xa => "a",
+        0xb => "b",
+        0xc => "c",
+        0xd => "d",
+        0xe => "e",
+        0xf => "f",
+        _ => loop {},
+    }
+}
+
+fn print_hex(val: u64) -> () {
+    let mut shift = 60;
+    let nibbles: usize = 64 / 4;
+
+    uart_write("0x");
+    for _ in 0..nibbles {
+        uart_write(to_hex((val & (0xf << shift)) >> shift));
+        shift -= 4;
+    }
+}
+
+fn print_elr_el2() -> () {
+    let elr_el2: u64;
+
+    uart_write("ELR_EL2: ");
+    mrs!(elr_el2, "ELR_EL2");
+
+    print_hex(elr_el2);
+    uart_write("\n");
+}
+
+//ELR_EL2        0x40400000
+
 #[no_mangle]
 pub extern fn irq_handler() -> ! {
     print_current_el();
     print_spsr_el2();
+    print_elr_el2();
     print_exception_syndrome(ExceptionLevel::EL1);
     print_exception_syndrome(ExceptionLevel::EL2);
     loop {}
@@ -334,15 +414,14 @@ fn init_el2_interrupts(irq_vector_addr: u64) -> () {
 }
 
 fn init_el1_interrupts(irq_vector_addr: u64) -> () {
-    let vbar_el2 = irq_vector_addr;
+    let vbar_el1 = irq_vector_addr;
 
     // If the implementation does not support ARMv8.2-LVA, then
     // bits VBAR_EL2[63:48] must be zero.
-    match vbar_el2 & !((1<<48) - 1) {
+    match vbar_el1 & !((1<<48) - 1) {
         0 => {
-            msr!("vbar_el2", vbar_el2);
+            msr!("vbar_el1", vbar_el1);
             isb();
-            trap_lower_el_into_el2();
         },
         _ => loop {}
     }
@@ -372,7 +451,7 @@ const SPSR_EL2h: u64 = 0b1001;
 pub fn load_guest() -> () {
     let guest_address: u64 = 0x40400000;
 
-    let mut stage2_table = PageTableTree::new();
+    let mut stage2_table = PageTableTreeStage2::new();
     stage2_table.map(guest_address, guest_address);
 
     /* Initialize VTCR_EL2 */
@@ -380,7 +459,7 @@ pub fn load_guest() -> () {
 
     /* Initialize VTTBR_EL2 */
     let vttbr_el2 = &stage2_table as *const _ as u64;
-    switch_vttbr(vttbr_el2);
+    switch_vttbr(vttbr_el2 & !((1<<12)-1));
     
     unsafe { asm!("msr SCTLR_EL1, XZR"); }
     
@@ -394,28 +473,11 @@ pub fn load_guest() -> () {
      */
 
     msr!("ELR_EL2", guest_address);
-
-    //const EL0t: u64 = 0b0000;
-    //const EL1h: u64 = 0b0101;
-    //let spsr_el2: u64 = EL1h;
-    //let spsr_el2: u64 = EL0t;
-    // 0b0000 => EL0 (sync_lower_64)
-    // 0b0001 => EL2h
-    // 0b0010 => EL2h
-    // 0b0011 => EL2h
-    // 0b0100 => EL0 (sync_lower_64)
-    // 0b0101 => EL0
-    // 0b0110 => EL2h
-    // 0b0111 => EL2h
-    // 0b1000 => EL2t
-    // 0b1001 => EL2h
-    // 0b1010 => EL2h
-    // 0b1101 => EL2h
-    // 0b1111 => EL2h
-    msr!("SPSR_EL2", SPSR_EL2t);
+    msr!("SPSR_EL2", SPSR_EL1h);
 
     //data_abort();
 
+    flush_hypervisor_tlb();
     unsafe {
         asm!("eret");
     }
@@ -448,6 +510,10 @@ pub extern fn start_hypervisor(start: u64,
     init_sctlr();
     unsafe { asm!("msr spsel, #1") }
 
+    init_el2_interrupts(irq_vector_addr);
+    init_el1_interrupts(irq_vector_addr);
+
+
     let mut boot_table_tree = PageTableTree::new();
     setup_boot_pagetables(&mut boot_table_tree, start, end, offset);
 
@@ -456,14 +522,13 @@ pub extern fn start_hypervisor(start: u64,
     //let guest_address: u64 = 0x40400000;
     //boot_table_tree.map(guest_address, guest_address);
 
+
     /* Flush the tlb just in case there is stale state */
     flush_hypervisor_tlb();
-
     let ttbr0_el2 = &boot_table_tree.zeroeth as *const _ as u64;
     switch_ttbr(ttbr0_el2);
+
     enable_mmu();
-    init_el2_interrupts(irq_vector_addr);
-    init_el1_interrupts(irq_vector_addr);
 
     uart_init(uart_virt);
     uart_write("UART mapped\n");
