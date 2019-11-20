@@ -1,26 +1,36 @@
 #![no_std]
 #![no_main]
+#![feature(custom_test_frameworks)]
 #![feature(lang_items)]
 #![feature(asm)]
 #![feature(trace_macros)]
 #![feature(const_fn)]
 #![allow(dead_code)]
 
-mod start;
 mod lpae;
-mod memory_attrs;
-mod aarch64;
 mod common;
 mod frame_alloc;
 mod esr;
+mod memory_attrs;
 mod uart;
+mod aarch64;
 
-pub use start::start_hypervisor;
-
-#[cfg(not(test))]
 use core::panic::PanicInfo;
 
-#[cfg(not(test))]
+mod irq;
+
+#[cfg(not(feature="hypervisor_test"))]
+mod start;
+#[cfg(not(feature="hypervisor_test"))]
+pub use start::start_hypervisor;
+
+#[cfg(feature="hypervisor_test")]
+mod test;
+
+#[cfg(feature="hypervisor_test")]
+pub use test::start_hypervisor;
+
+
 #[panic_handler]
 fn handler(_x: &PanicInfo) -> ! {
     loop {}
@@ -28,6 +38,14 @@ fn handler(_x: &PanicInfo) -> ! {
 
 #[lang = "eh_unwind_resume"]
 extern "C" fn rust_eh_unwind_resume() {}
+
+#[cfg(test)]
+fn test_runner(tests: &[&dyn Fn()]) {
+        println!("Running {} tests", tests.len());
+            for test in tests {
+                        test();
+                            }
+}
 
 #[cfg(test)]
 mod tests {

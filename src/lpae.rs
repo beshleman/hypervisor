@@ -362,3 +362,64 @@ pub fn align_4k(addr: u64) -> u64 {
 pub fn zeroeth_index(addr: u64) -> usize {
     return ((addr >> ZEROETH_SHIFT) & PTE_MASK) as usize;
 }
+
+pub struct PageTableTree {
+    pub zeroeth: PageTable,
+    first: PageTable,
+    second: PageTable,
+    third: PageTable,
+}
+
+impl PageTableTree {
+    pub fn new() -> PageTableTree {
+        PageTableTree {
+            zeroeth: PageTable::new(),
+            first: PageTable::new(),
+            second: PageTable::new(),
+            third: PageTable::new(),
+        }
+    }
+
+    pub fn map(&mut self, vaddr: u64, paddr: u64) -> () {
+        let index0 = pagetable_zeroeth_index(vaddr);
+        let index1 = pagetable_first_index(vaddr);
+        let index2 = pagetable_second_index(vaddr);
+        let index3 = pagetable_third_index(vaddr);
+
+        self.zeroeth.entries[index0] = PageTableEntry::from_table(&self.first);
+        self.first.entries[index1] = PageTableEntry::from_table(&self.second);
+        self.second.entries[index2] = PageTableEntry::from_table(&self.third);
+        self.third.entries[index3] = PageTableEntry::from_block(paddr);
+    }
+}
+
+pub struct PageTableTreeStage2 {
+    pub zeroeth: PageTable,
+    first: PageTable,
+    second: PageTable,
+    third: PageTable,
+}
+
+impl PageTableTreeStage2 {
+    pub fn new() -> PageTableTree {
+        PageTableTree {
+            zeroeth: PageTable::new(),
+            first: PageTable::new(),
+            second: PageTable::new(),
+            third: PageTable::new(),
+        }
+    }
+
+    pub fn map(&mut self, vaddr: u64, paddr: u64) -> () {
+        let index0 = pagetable_zeroeth_index(vaddr);
+        let index1 = pagetable_first_index(vaddr);
+        let index2 = pagetable_second_index(vaddr);
+        let index3 = pagetable_third_index(vaddr);
+
+        self.zeroeth.entries[index0] = PageTableEntry::from_table_stage2(&self.first);
+        self.first.entries[index1] = PageTableEntry::from_table_stage2(&self.second);
+        self.second.entries[index2] = PageTableEntry::from_table_stage2(&self.third);
+        self.third.entries[index3] = PageTableEntry::from_block_stage2(paddr);
+    }
+}
+
