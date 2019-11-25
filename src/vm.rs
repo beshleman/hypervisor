@@ -80,7 +80,7 @@ impl VTCR_EL2 {
 
     #[inline]
     pub fn set_sh0(val: u64) -> () {
-        const SHIFT: u64 = 11;
+        const SHIFT: u64 = 12;
         const MASK: u64 =  0b11 << SHIFT;
 
         let mut reg = VTCR_EL2::get();
@@ -93,7 +93,7 @@ impl VTCR_EL2 {
 
     #[inline]
     pub fn set_sl0(val: u64) -> () {
-        const SHIFT: u64 = 5;
+        const SHIFT: u64 = 6;
         const MASK: u64 =  0b11 << SHIFT;
 
         let mut reg = VTCR_EL2::get();
@@ -107,7 +107,7 @@ impl VTCR_EL2 {
 
     #[inline]
     pub fn set_tg0(val: u64) -> () {
-        const SHIFT: u64 = 13;
+        const SHIFT: u64 = 14;
         const MASK: u64 =  0b11 << SHIFT;
 
         let mut reg = VTCR_EL2::get();
@@ -120,7 +120,7 @@ impl VTCR_EL2 {
 
     #[inline]
     pub fn set_ps(val: u64) -> () {
-        const SHIFT: u64 = 15;
+        const SHIFT: u64 = 16;
         const MASK: u64 =  0b111 << SHIFT;
 
         let mut reg = VTCR_EL2::get();
@@ -168,7 +168,7 @@ pub fn init_vtcr() -> () {
     VTCR_EL2::set_sh0(0x3);
     VTCR_EL2::set_tg0(0);
     VTCR_EL2::set_t0sz(24);
-    VTCR_EL2::set_sl0(0x2);
+    VTCR_EL2::set_sl0(0b10);
     VTCR_EL2::set_ps(0b010);
     VTCR_EL2::reserved();
     show_vtcr_el2();
