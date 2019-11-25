@@ -12,6 +12,7 @@ use crate::aarch64::{current_el, Shareable, data_barrier, isb};
 use crate::{msr, mrs};
 use crate::common::bit;
 use crate::uart::{uart_write, uart_init};
+use crate::vm::{init_vtcr, get_phys_addr_range};
 
 const UART_BASE: u64 = 0x09000000;
 const UART_SIZE: u64 = 0x00001000;
@@ -131,15 +132,6 @@ fn switch_vttbr(pagetable_address: u64) -> () {
     isb();
 }
 
-fn get_phys_addr_range() -> u64 {
-    let mmfr0: u64;
-
-    mrs!(mmfr0, "ID_AA64MMFR0_EL1"); 
-
-    // ID_AA64MMFR0_EL1[3:0] is PARange
-    mmfr0 & 0xf
-}
-
 fn disable_el2_host() -> () {
     // D13.2.46 HCR_EL2, Hypervisor Configuration Register
     let mut hcr_el2: u64;
@@ -163,30 +155,6 @@ fn init_tcr() -> () {
     // 48-bit virtual address space
     tcr_el2 |= 64 - 48;
     msr!("tcr_el2", tcr_el2);
-}
-
-const VTCR_EL2_SL0: u64 = 0x2 << 6;
-const VTCR_EL2_T0SZ: u64 = 24; // 64 bit width - 40 bit address size
-const VTCR_EL2_TG0: u64 = 0 << 14;
-const VTCR_EL2_SH0: u64 = 0x3 << 12; // Inner Shareable
-const VTCR_EL2_RES1: u64 = 1 << 31;
-
-fn init_vtcr() -> () {
-    let mut vctr_el2: u64 = 0;
-
-    vctr_el2 |= VTCR_EL2_RES1;
-    vctr_el2 |= VTCR_EL2_SH0;
-    vctr_el2 |= VTCR_EL2_TG0;
-    vctr_el2 |= VTCR_EL2_T0SZ;
-    vctr_el2 |= VTCR_EL2_SL0;
-
-    // TCR_EL2.PS[18:16]
-    let pa_range = get_phys_addr_range();
-    vctr_el2 |= (pa_range & 0x3) << 16;
-
-    // 48-bit virtual address space
-    vctr_el2 |= 64 - 48;
-    msr!("vtcr_el2", vctr_el2);
 }
 
 fn enable_mmu() -> () { 

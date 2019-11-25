@@ -14,6 +14,8 @@ mod esr;
 mod memory_attrs;
 mod uart;
 mod aarch64;
+mod vm;
+
 
 use core::panic::PanicInfo;
 

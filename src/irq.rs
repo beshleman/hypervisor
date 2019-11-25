@@ -2,6 +2,7 @@ use crate::uart::uart_write;
 use crate::esr::print_exception_syndrome;
 use crate::aarch64::{current_el, ExceptionLevel};
 use crate::mrs;
+use crate::common::print_hex;
 
 fn print_spsr_el2() -> () {
 
@@ -47,38 +48,6 @@ fn print_current_el() -> () {
     uart_write("\n");
 }
 
-fn to_hex(val: u64) -> &'static str {
-    match val {
-        0x0 => "0",
-        0x1 => "1",
-        0x2 => "2",
-        0x3 => "3",
-        0x4 => "4",
-        0x5 => "5",
-        0x6 => "6",
-        0x7 => "7",
-        0x8 => "8",
-        0x9 => "9",
-        0xa => "a",
-        0xb => "b",
-        0xc => "c",
-        0xd => "d",
-        0xe => "e",
-        0xf => "f",
-        _ => loop {},
-    }
-}
-
-fn print_hex(val: u64) -> () {
-    let mut shift = 60;
-    let nibbles: usize = 64 / 4;
-
-    uart_write("0x");
-    for _ in 0..nibbles {
-        uart_write(to_hex((val & (0xf << shift)) >> shift));
-        shift -= 4;
-    }
-}
 
 fn print_elr_el2() -> () {
     let elr_el2: u64;
