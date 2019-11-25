@@ -5,6 +5,7 @@
  */
 
 use crate::mrs;
+use crate::common::bit;
 use crate::uart::uart_write;
 use crate::aarch64::ExceptionLevel;
 
@@ -337,10 +338,7 @@ pub fn esr(el: ExceptionLevel) -> u64 {
 
 const IFSC_MASK: u64 = ((1 << 6) - 1);
 
-pub fn print_instruction_abort(esr_el2: u64) -> () {
-    uart_write("Instruction Abort Current ELx\n");
-
-
+fn print_ifsc(esr_el2: u64) -> () {
     let ifsc = esr_el2 & IFSC_MASK;
 
     let mut _myifsc = ifsc;
@@ -378,6 +376,24 @@ pub fn print_instruction_abort(esr_el2: u64) -> () {
     uart_write("Instruction Fault Status Code: ");
     uart_write(string);
     uart_write("\n");
+}
+
+fn print_stage_info(esr_el2: u64) -> () {
+    uart_write("Instruction Fault Occurred at Stage ");
+    match esr_el2 & bit(7) {
+        0 => uart_write("1"),
+        1 => uart_write("2"),
+        _ => uart_write("UNKNOWN"),
+    };
+    uart_write("\n");
+}
+
+pub fn print_instruction_abort(esr_el2: u64) -> () {
+    uart_write("Instruction Abort Current ELx\n");
+
+    print_ifsc(esr_el2);
+    print_stage_info(esr_el2);
+
 }
 
 pub fn print_exception_syndrome(el: ExceptionLevel) -> () {
