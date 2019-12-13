@@ -5,7 +5,7 @@
  */
 
 use crate::mrs;
-use crate::common::bit;
+use crate::common::{bit, print_hex};
 use crate::uart::uart_write;
 use crate::aarch64::ExceptionLevel;
 
@@ -388,11 +388,27 @@ fn print_stage_info(esr_el2: u64) -> () {
     uart_write("\n");
 }
 
-pub fn print_instruction_abort(esr_el2: u64) -> () {
-    uart_write("Instruction Abort Current ELx\n");
+fn print_faulting_address() {
+    let reg: u64;
+
+    mrs!(reg, "FAR_EL2");
+
+    uart_write("FAR_EL2: ");
+    print_hex(reg);
+    uart_write("\n");
+}
+
+pub fn print_instruction_abort(esr_el2: u64, current: bool) -> () {
+
+    if current == true {
+        uart_write("Instruction Abort Current ELx\n");
+    } else {
+        uart_write("Instruction Abort Lower ELx\n");
+    }
 
     print_ifsc(esr_el2);
     print_stage_info(esr_el2);
+    print_faulting_address();
 
 }
 
@@ -429,8 +445,8 @@ pub fn print_exception_syndrome(el: ExceptionLevel) -> () {
         ESR_ELx_EC_SVE => uart_write("ESR_ELx_EC_SVE"),
         ESR_ELx_EC_ERET => uart_write("ESR_ELx_EC_ERET"),
         ESR_ELx_EC_IMP_DEF => uart_write("ESR_ELx_EC_IMP_DEF"),
-        ESR_ELx_EC_IABT_LOW => print_instruction_abort(esr),
-        ESR_ELx_EC_IABT_CUR => print_instruction_abort(esr),
+        ESR_ELx_EC_IABT_LOW => print_instruction_abort(esr, false),
+        ESR_ELx_EC_IABT_CUR => print_instruction_abort(esr, true),
         ESR_ELx_EC_PC_ALIGN => uart_write("ESR_ELx_EC_PC_ALIGN"),
         ESR_ELx_EC_DABT_LOW => uart_write("ESR_ELx_EC_DABT_LOW"),
         ESR_ELx_EC_DABT_CUR => uart_write("ESR_ELx_EC_DABT_CUR"),
