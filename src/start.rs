@@ -65,8 +65,9 @@ fn setup_boot_pagetables(boot_table_tree: &mut PageTableTree,
     map_address_range(boot_table_tree, start, end, start);
 
     /* Map the hypervisor load address space to its real physical address space */
-    map_address_range(boot_table_tree, start + offset,
+    /*map_address_range(boot_table_tree, start + offset,
                       end + offset, start);
+                      */
 
     /* TODO: map RO, .text, .bss, etc... separately w/ appropriate permissions */
 
@@ -258,6 +259,9 @@ pub fn load_guest() -> () {
     let mut stage2_table = PageTableTreeStage2::new();
     stage2_table.map(guest_address, guest_address);
 
+    // DEBUG: irq vector
+    stage2_table.map(0x40000000, 0x40000000);
+
     /* Initialize VTCR_EL2 */
     init_vtcr();
 
@@ -267,8 +271,11 @@ pub fn load_guest() -> () {
     
     unsafe { asm!("msr SCTLR_EL1, XZR"); }
     
-     /* Mask interrupts */ 
-    unsafe { asm!("msr daifclr, #0xf"); }
+     /* Unmask interrupts */ 
+    //unsafe { asm!("msr daifclr, #0xf"); }
+
+    // Disable local IRQs
+    unsafe { asm!("msr daifset, #0x2"); }
 
     /*
      * To return from an exception, use the ERET instruction. This instruction restores
@@ -276,10 +283,26 @@ pub fn load_guest() -> () {
      * by copying SPSR_ELn to PSTATE and branches to the saved return address in ELR_ELn.
      */
 
-    msr!("ELR_EL2", guest_address);
-    msr!("SPSR_EL2", SPSR_EL1h);
-
     //data_abort();
+    //
+    //
+    /*
+     * for first vm entry:
+     *
+     * SPSR_EL1 = 0
+     * SP_EL0 = 0
+     * 
+     * SP_EL1 = 0
+     * ELR_EL1 = 0
+     *
+     * ELR_EL2 = dom0 address (0x5008_0000)
+     * SPSR_EL2 = 0x1c5 (D clear, AIF masked, Aarch64, EL1h)
+     *
+     */
+    msr!("ELR_EL2", guest_address);
+    //msr!("SPSR_EL2", SPSR_EL1h | (0x1c << 4));
+    msr!("SPSR_EL2", 0x1c5);
+
 
     flush_hypervisor_tlb();
     unsafe {
@@ -323,8 +346,7 @@ pub extern fn start_hypervisor(start: u64,
 
     let uart_virt = align(end + PAGE_SIZE as u64, Alignment::Kb4);
     boot_table_tree.map(uart_virt, UART_BASE);
-    //let guest_address: u64 = 0x40400000;
-    //boot_table_tree.map(guest_address, guest_address);
+    //boot_table_tree.map(0x40400000, 0x40400000);
 
 
     /* Flush the tlb just in case there is stale state */

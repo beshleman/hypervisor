@@ -213,19 +213,34 @@ impl PageTableEntry {
     /// good for device memory.  This will need to be changed.
     pub fn from_table_stage2(table: &PageTable) -> PageTableEntry {
         let address: u64 = (table as *const PageTable) as u64;
-        let mut descriptor: u64 = 0;
-
 
         // Set next level table address
-        descriptor |=  (address >> 12) << 12;
+        let mut descriptor: u64 =  address & !((1<<12)-1);
 
         // Clear bits beyond 40th bit because Cortex-A53 only
         // supports 40-bit OA
-        descriptor &= !((1 << 40) - 1);
+        descriptor &= (1 << 40) - 1;
         
-        // This is hypervisor memory, so set the Non-Secure Table bit to 1
+        /*
+         * Set valid, table, af, read, sh inner, mem attr to device
+         */
         descriptor |= PTE_VALID;
         descriptor |= PTE_TABLE;
+
+        // AF[10] = 1
+        descriptor |= 1 << 10;
+
+        // SH[9:8] == Normal, 
+        descriptor |= 0b10 << 8;
+
+        // Use memory attr 000, which is inner-shareable, WBWA
+        descriptor &= !(bit(4) | bit(3) | bit(2));
+
+        // This is a Non-Secure block, NS == 1
+        descriptor |= bit(5);
+
+        // read/write 
+        descriptor |= bit(7) | bit(6);
 
         assert_eq!(descriptor & STAGE2_TABLE_DESCRIPTOR_RES0, 0);
         return PageTableEntry(descriptor);
@@ -236,8 +251,6 @@ impl PageTableEntry {
         let mut descriptor = 0;
 
         // Set Stage2 lower/uppder attributes
-        // MemAttr[5:2] ==  (Normal, Write-Back Cacheable)
-        descriptor |= 0b1111 << 2;
     
         // S2AP[7:6] ==  0b11 (read/write)
         descriptor |= 0b11 << 6;
@@ -249,7 +262,6 @@ impl PageTableEntry {
         descriptor |= 1 << 10;
 
         // nT = 0, DBM = 0, Contiguous = 0, XN = 0, PBHA = 0
-
         descriptor |= address & !((1 << 12) - 1);
 
         /* For 4K mappings, PTE_TABLE is set too*/
@@ -298,7 +310,7 @@ impl PageTableEntry {
 
         descriptor |= address & !((1 << 12) - 1);
 
-        /* For 4K mappings, PTE_TABLE is set too*/
+        /* For 4K mappings, PTE_TABLE is set too */
         descriptor |= PTE_TABLE;
         descriptor |= PTE_VALID;
 
@@ -318,7 +330,7 @@ impl PageTableEntry {
 
         /*
          * In ARMv8, software must manage the access flag.
-         * If it is NOT set to 1, then attempts at loadding this
+         * If it is NOT set to 1, then attempts at loading this
          * entry into the TLB will cause an Access flag fault.
          */
         descriptor |= bit(10);
@@ -382,9 +394,24 @@ impl PageTableTree {
 
     pub fn map(&mut self, vaddr: u64, paddr: u64) -> () {
         let index0 = pagetable_zeroeth_index(vaddr);
+        if self.zeroeth.entries[index0].is_valid() {
+            //loop {}
+        }
+
         let index1 = pagetable_first_index(vaddr);
+        if self.first.entries[index1].is_valid() {
+            //loop {}
+        }
+
         let index2 = pagetable_second_index(vaddr);
+        if self.second.entries[index2].is_valid() {
+            //loop {}
+        }
+
         let index3 = pagetable_third_index(vaddr);
+        if self.third.entries[index3].is_valid() {
+            loop {}
+        }
 
         self.zeroeth.entries[index0] = PageTableEntry::from_table(&self.first);
         self.first.entries[index1] = PageTableEntry::from_table(&self.second);
@@ -401,8 +428,8 @@ pub struct PageTableTreeStage2 {
 }
 
 impl PageTableTreeStage2 {
-    pub fn new() -> PageTableTree {
-        PageTableTree {
+    pub fn new() -> PageTableTreeStage2 {
+        PageTableTreeStage2 {
             zeroeth: PageTable::new(),
             first: PageTable::new(),
             second: PageTable::new(),

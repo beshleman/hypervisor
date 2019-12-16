@@ -336,12 +336,10 @@ pub fn esr(el: ExceptionLevel) -> u64 {
     esr
 }
 
-const IFSC_MASK: u64 = ((1 << 6) - 1);
+const IFSC_MASK: u64 = 0b111111;
 
 fn print_ifsc(esr_el2: u64) -> () {
     let ifsc = esr_el2 & IFSC_MASK;
-
-    let mut _myifsc = ifsc;
 
     let string = 
         match ifsc {
@@ -379,10 +377,10 @@ fn print_ifsc(esr_el2: u64) -> () {
 }
 
 fn print_stage_info(esr_el2: u64) -> () {
-    uart_write("Instruction Fault Occurred at Stage ");
-    match esr_el2 & bit(7) {
-        0 => uart_write("1"),
-        1 => uart_write("2"),
+    uart_write("S1PTW: ");
+    match (esr_el2 & bit(7)) >> 7 {
+        0 => uart_write("Fault NOT on s2 translation of s1 access1"),
+        1 => uart_write("Fault on s2 translation of s1 access"),
         _ => uart_write("UNKNOWN"),
     };
     uart_write("\n");
