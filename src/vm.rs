@@ -59,6 +59,11 @@ impl VTCR_EL2 {
     }
 
     #[inline]
+    pub fn set(val: u64) -> () {
+        msr!("VTCR_EL2", val);
+    }
+
+    #[inline]
     pub fn t0sz() -> u64 {
         const MASK: u64 = 0b11111;
 
@@ -121,12 +126,10 @@ impl VTCR_EL2 {
     #[inline]
     pub fn set_ps(val: u64) -> () {
         const SHIFT: u64 = 16;
-        const MASK: u64 =  0b111 << SHIFT;
 
         let mut reg = VTCR_EL2::get();
 
-        reg &= !MASK;
-        reg |= (val << SHIFT) & MASK;
+        reg |= val << SHIFT;
 
         msr!("VTCR_EL2", reg);
     }
@@ -164,13 +167,40 @@ const VTCR_EL2_RES1: u64 = 1 << 31;
 
 
 pub fn init_vtcr() -> () {
-    show_vtcr_el2();
+    /* A53
+     *
+    let pa_range: u64 = 2;
+    let pa_bits: u64 = 40;
+    let t0sz: u64 = 24;
+    let root_order: u64 = 1;
+    let sl0: u64 = 1;
+    const TG0_4K: u64 = 0;
+
     VTCR_EL2::set_sh0(0x3);
-    VTCR_EL2::set_tg0(0);
-    VTCR_EL2::set_t0sz(24);
-    VTCR_EL2::set_sl0(0b10);
-    VTCR_EL2::set_ps(0b010);
+    VTCR_EL2::set_t0sz(t0sz);
+    VTCR_EL2::set_tg0(TG0_4K);
+    VTCR_EL2::set_sl0(sl0);
+    VTCR_EL2::set_ps(pa_range);
     VTCR_EL2::reserved();
-    show_vtcr_el2();
+    */
+
+    /*
+     * PS    = 010    (2) # 40-bit Phys Addr
+     * TG0   = 00     (0) # 4KB Translation Granule
+     * SH0   = 11     (3)
+     * ORGN0 = 01     (1)
+     * IRGN0 = 01     (1)
+     * SL0   = 01     (start at level 1)
+     * T0SZ  = 011000 (24)
+     *
+     * RES0=0000_0000_0000_0000_0000_0000_0000_0000 RES1=1 NSa=0 NSw=0 HWx=0_000 RES=00 HD=0 HA=0   RES=0 VS=0_010_00_11_01_01_01_011000
+     */
+
+    /* A53 */
+    VTCR_EL2::set(0x80023558);
+
+    /* A57 */
+    // RES1=1, RES0=000000000000,  PS=100 (44-bit Phys A), TG0=00 (4KB Granule), SH0=11, ORGN0=01, IRGN0=01, SL0=10 (start at level 0), TOSZ=010100 (20)
+    //VTCR_EL2::set(0x80043594);
 }
 

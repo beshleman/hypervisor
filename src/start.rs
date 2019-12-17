@@ -27,6 +27,15 @@ const TCR_EL2_OUTER_WRITE_BACK_WRITE_ALLOC: u64 = bit(10);
 const TCR_EL2_INNER_SHAREABLE: u64 = bit(12) | bit(13);
 const TCR_EL2_RES1: u64 = bit(31) | bit(23);
 
+fn init_guest_cpsr() -> () {
+    const _PSR_MODE_EL1H: u64 = 0x05;
+    const ABT_MASK: u64 = 1<<8;
+    const IRQ_MASK: u64 = 1<<7;
+    const FIQ_MASK: u64 = 1<<6;
+
+    let _default = _PSR_MODE_EL1H | ABT_MASK | IRQ_MASK | FIQ_MASK;
+}
+
 fn map_address_range(boot_table_tree: &mut PageTableTree,
                      virt_start: u64,
                      virt_end: u64,
@@ -260,14 +269,17 @@ pub fn load_guest() -> () {
     stage2_table.map(guest_address, guest_address);
 
     // DEBUG: irq vector
-    stage2_table.map(0x40000000, 0x40000000);
+    //stage2_table.map(0x40000000, 0x40000000);
 
     /* Initialize VTCR_EL2 */
     init_vtcr();
 
     /* Initialize VTTBR_EL2 */
     let vttbr_el2 = &stage2_table as *const _ as u64;
-    switch_vttbr(vttbr_el2 & !((1<<12)-1));
+    // We mask out bits [13:0] because we are using a concatenated table
+    // of 8KB for stage 2, meaning that the table address requires one less
+    // bit than a 4KB table
+    switch_vttbr(vttbr_el2 & !((1<<13)-1));
     
     unsafe { asm!("msr SCTLR_EL1, XZR"); }
     
@@ -304,6 +316,7 @@ pub fn load_guest() -> () {
     msr!("SPSR_EL2", 0x1c5);
 
 
+    isb();
     flush_hypervisor_tlb();
     unsafe {
         asm!("eret");

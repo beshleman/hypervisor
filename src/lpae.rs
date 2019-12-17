@@ -25,19 +25,19 @@ const PTE_SHIFT_64K: u64 = 13;
 const PTE_SHIFT: u64 = 9;
 const PTE_MASK: u64 = (1 << PTE_SHIFT) - 1;
 
-const THIRD_SHIFT: u64 =  PAGE_SHIFT;
-const THIRD_SIZE: u64 =   (THIRD_SHIFT);
+const THIRD_SHIFT: u64 =  12;
+const THIRD_SIZE: u64 =   1 << THIRD_SHIFT;
 const THIRD_MASK: u64 =   (!(THIRD_SIZE - 1));
 
-const SECOND_SHIFT: u64 = (THIRD_SHIFT + PTE_SHIFT);
+const SECOND_SHIFT: u64 = 21;
 const SECOND_SIZE: u64 =  (1 << SECOND_SHIFT);
 const SECOND_MASK: u64 =  (!(SECOND_SIZE - 1));
 
-const FIRST_SHIFT: u64 =  (SECOND_SHIFT + PTE_SHIFT);
+const FIRST_SHIFT: u64 =  30;
 const FIRST_SIZE: u64 =   (1 << FIRST_SHIFT);
 const FIRST_MASK: u64 =   (!(FIRST_SIZE - 1));
 
-const ZEROETH_SHIFT: u64 = (FIRST_SHIFT + PTE_SHIFT);
+const ZEROETH_SHIFT: u64 = 39;
 const ZEROETH_SIZE: u64 =  (1 << ZEROETH_SHIFT);
 const ZEROETH_MASK: u64 =  (!(ZEROETH_SIZE - 1));
 
@@ -162,6 +162,21 @@ impl PageTableEntry {
     }
 }
 
+#[repr(align(8192))]
+pub struct PageTableConcat {
+    pub entries: [PageTableEntry; 1024],
+}
+
+impl PageTableConcat {
+    pub fn new() -> PageTableConcat {
+        PageTableConcat {
+                entries: [PageTableEntry(0); 1024]
+        }
+    }
+}
+
+
+
 #[repr(align(4096))]
 pub struct PageTable {
     pub entries: [PageTableEntry; 512],
@@ -248,54 +263,22 @@ impl PageTableEntry {
 
     pub fn from_block_stage2(address: u64) -> PageTableEntry {
         assert!(address < CORTEX_A53_MAX_OA);
-        let mut descriptor = 0;
 
-        // Set Stage2 lower/uppder attributes
-    
-        // S2AP[7:6] ==  0b11 (read/write)
-        descriptor |= 0b11 << 6;
+        // Align address to 1GB
+        let mut descriptor = address & !((1<<30) - 1);
 
-        // SH[9:8] == Normal, 
-        descriptor |= 0b10 << 8;
+        // Valid
+        descriptor |= 1;
 
-        // AF[10] = 1
-        descriptor |= 1 << 10;
+        // Not a table, so bit 1 is 0
+        assert_eq!(descriptor & 0b10, 0);
 
-        // nT = 0, DBM = 0, Contiguous = 0, XN = 0, PBHA = 0
-        descriptor |= address & !((1 << 12) - 1);
+        // S2AP
+        descriptor |= bit(7);
+        descriptor |= bit(6);
 
-        /* For 4K mappings, PTE_TABLE is set too*/
-        descriptor |= PTE_TABLE;
-        descriptor |= PTE_VALID;
-
-        // Use memory attr 000, which is inner-shareable, WBWA
-        descriptor &= !(bit(4) | bit(3) | bit(2));
-
-        // This is a Non-Secure block, NS == 1
-        descriptor |= bit(5);
-
-        // Access Permissions == EL2 Read/Write, no EL1 or EL0 access
-        // (i.e., AP[1:0]  == 00)
-        descriptor &= !(bit(7) | bit(6));
-
-        // Hypervisor pages are inner-shareable, so as to be
-        // coherent across PEs, (i.e, SH == 11)
-        descriptor |= bit(9) | bit(8);
-
-        /*
-         * In ARMv8, software must manage the access flag.
-         * If it is NOT set to 1, then attempts at loadding this
-         * entry into the TLB will cause an Access flag fault.
-         */
+        // Access Flag
         descriptor |= bit(10);
-
-        /* Set to non-Global = 0, because we don't support ASIDs yet.
-         * TODO: Support ASIDs
-         */
-        descriptor &= !bit(11);
-
-        /* TODO: implement Upper attributes */
-
         return PageTableEntry(descriptor);
     }
 
@@ -352,15 +335,21 @@ pub fn align(vaddr: VirtualAddress, alignment: Alignment) -> VirtualAddress {
 
 /* Helpers for navigating the page tables */
 pub fn pagetable_zeroeth_index(vaddr: VirtualAddress) -> usize {
-    return ((vaddr >> ZEROETH_SHIFT) & PTE_MASK) as usize;
+    ((vaddr >> ZEROETH_SHIFT) & PTE_MASK) as usize
+}
+
+pub fn pagetable_concat_table(vaddr: VirtualAddress) -> usize {
+    let bit = (vaddr & (1 << 39)) >> 39;
+
+    bit as usize
 }
 
 pub fn pagetable_first_index(vaddr: VirtualAddress) -> usize {
-    return ((vaddr >> FIRST_SHIFT) & PTE_MASK) as usize;
+    ((vaddr >> FIRST_SHIFT) & PTE_MASK) as usize
 }
 
 pub fn pagetable_second_index(vaddr: VirtualAddress) -> usize {
-    return ((vaddr >> SECOND_SHIFT) & PTE_MASK) as usize;
+    ((vaddr >> SECOND_SHIFT) & PTE_MASK) as usize
 }
 
 pub fn pagetable_third_index(vaddr: VirtualAddress) -> usize {
@@ -369,10 +358,6 @@ pub fn pagetable_third_index(vaddr: VirtualAddress) -> usize {
 
 pub fn align_4k(addr: u64) -> u64 {
     return addr & ALIGN_4K_MASK;
-}
-
-pub fn zeroeth_index(addr: u64) -> usize {
-    return ((addr >> ZEROETH_SHIFT) & PTE_MASK) as usize;
 }
 
 pub struct PageTableTree {
@@ -421,32 +406,25 @@ impl PageTableTree {
 }
 
 pub struct PageTableTreeStage2 {
-    pub zeroeth: PageTable,
+    pub zeroeth: PageTableConcat,
     first: PageTable,
-    second: PageTable,
-    third: PageTable,
 }
 
 impl PageTableTreeStage2 {
     pub fn new() -> PageTableTreeStage2 {
         PageTableTreeStage2 {
-            zeroeth: PageTable::new(),
+            zeroeth: PageTableConcat::new(),
             first: PageTable::new(),
-            second: PageTable::new(),
-            third: PageTable::new(),
         }
     }
 
     pub fn map(&mut self, vaddr: u64, paddr: u64) -> () {
-        let index0 = pagetable_zeroeth_index(vaddr);
+        let table_start = pagetable_concat_table(vaddr) * 512;
         let index1 = pagetable_first_index(vaddr);
         let index2 = pagetable_second_index(vaddr);
-        let index3 = pagetable_third_index(vaddr);
 
-        self.zeroeth.entries[index0] = PageTableEntry::from_table_stage2(&self.first);
-        self.first.entries[index1] = PageTableEntry::from_table_stage2(&self.second);
-        self.second.entries[index2] = PageTableEntry::from_table_stage2(&self.third);
-        self.third.entries[index3] = PageTableEntry::from_block_stage2(paddr);
+        self.zeroeth.entries[table_start + index1] = PageTableEntry::from_table_stage2(&self.first);
+        self.first.entries[index2] = PageTableEntry::from_block_stage2(paddr);
     }
 }
 
