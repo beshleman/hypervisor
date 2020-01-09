@@ -30,3 +30,9 @@ dump:
 clean:
 	xargo clean
 	rm src/head.o
+
+
+foo: src/head.o
+	cargo xrustc --bin hypervisor --target aarch64-unknown-linux-gnu -- -C link-arg=-nostartfiles -C panic=abort -C link-arg=-T$(LINKER) -C link-arg=src/head.o
+	cp target/aarch64-unknown-linux-gnu/debug/hypervisor target/aarch64-unknown-linux-gnu/debug/hypervisor.elf
+	aarch64-linux-gnu-objcopy -S target/aarch64-unknown-linux-gnu/debug/hypervisor.elf target/aarch64-unknown-linux-gnu/debug/hypervisor.bin
